@@ -41,7 +41,7 @@ class DatabaseConfig:
     """Database connection settings (SQLite or PostgreSQL)."""
 
     driver: str = "sqlite"
-    sqlite_path: str = "octop.db"
+    sqlite_path: str = "xfriend.db"
     host: str = "127.0.0.1"
     port: int = 5432
     database: str = "octop"
@@ -333,7 +333,7 @@ def parse_database_config(merged: dict[str, Any]) -> DatabaseConfig:
         raise ValueError(msg)
 
     if driver == "sqlite":
-        sqlite_path = str(merged.get("sqlite_path", "octop.db")).strip()
+        sqlite_path = str(merged.get("sqlite_path", "xfriend.db")).strip()
         if not sqlite_path:
             raise ValueError("database.sqlite_path must not be empty")
         return DatabaseConfig(driver=driver, sqlite_path=sqlite_path)
@@ -425,6 +425,9 @@ def load_config(path: Path) -> OctopConfig:
     (AGENTS.md §5). The message never echoes file contents — they hold database
     credentials.
     """
+    for name, value in tuple(os.environ.items()):
+        if name.startswith("XFRIEND_"):
+            os.environ["OCTOP_" + name.removeprefix("XFRIEND_")] = value
     file_defaults = _defaults_for_file()
     if path.exists():
         try:

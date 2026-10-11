@@ -34,8 +34,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 AUTO_BACKUP_JOB_ID = "octop_auto_backup"
-_AUTO_FILENAME_PREFIX = "octop-auto-backup-"
-_MANUAL_FILENAME_PREFIX = "octop-backup-"
+_AUTO_FILENAME_PREFIX = "xfriend-auto-backup-"
+_MANUAL_FILENAME_PREFIX = "xfriend-backup-"
 
 BackupOperation = Literal["create", "restore", "auto", "export"]
 
@@ -79,7 +79,7 @@ def raise_if_backup_busy() -> None:
 
 
 def to_auto_backup_filename(suggested: str) -> str:
-    """Map ``octop-backup-*.tar.gz`` → ``octop-auto-backup-*.tar.gz``."""
+    """Map ``xfriend-backup-*.tar.gz`` → ``xfriend-auto-backup-*.tar.gz``."""
     name = Path(suggested).name
     if is_auto_backup_filename(name):
         return name

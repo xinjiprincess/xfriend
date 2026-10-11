@@ -49,6 +49,23 @@ export function storeUiLocale(locale: UiLocale): void {
 
 /** Stored user preference wins; otherwise follow the browser. */
 export function resolveInitialLocale(): UiLocale {
+  if (typeof window !== "undefined") {
+    const params = new URLSearchParams(window.location.search);
+    const desktopLocale = params.get("desktopLocale");
+    if (desktopLocale === "zh" || desktopLocale === "en") {
+      storeUiLocale(desktopLocale);
+      params.delete("desktopLocale");
+      const query = params.toString();
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${window.location.pathname}${query ? `?${query}` : ""}${
+          window.location.hash
+        }`,
+      );
+      return desktopLocale;
+    }
+  }
   return readStoredUiLocale() ?? detectBrowserLocale();
 }
 

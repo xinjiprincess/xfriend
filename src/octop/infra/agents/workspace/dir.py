@@ -11,15 +11,15 @@ Create-time defaults when unset:
 
 * Host-rooted backend → on-disk ``{OCTOP_HOME}/agents/<id>/``, persist that
   host absolute path.
-* Scoped ``root_dir`` → on-disk ``{root_dir}/.octop/workspaces/<id>/`` (so files
-  land inside the jail), but persist ``/.octop/workspaces/<id>`` — the
+* Scoped ``root_dir`` → on-disk ``{root_dir}/.xfriend/workspaces/<id>/`` (so files
+  land inside the jail), but persist ``/.xfriend/workspaces/<id>`` — the
   agent-facing workspace path. Harness gets that persisted string as-is.
 
 User-assigned ``workspace_dir`` always wins (strip only).
 
 :func:`resolve_workspace_host_path` is only for Octop host FS ops (delete,
 memory sqlite path, etc.) when the persisted value is the agent-facing
-``/.octop/workspaces/…`` form.
+``/.xfriend/workspaces/…`` form.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from typing import Any
 
 from octop.infra.utils.paths import PathLayout
 
-DEFAULT_SYSTEM_FILES_PATH = ".octop"
+DEFAULT_SYSTEM_FILES_PATH = ".xfriend"
 SCOPED_WORKSPACE_DIRNAME = "workspaces"
 
 _WINDOWS_HOST_PATH_RE = re.compile(r"^(?:[A-Za-z]:[/\\]|\\\\|//)")
@@ -49,7 +49,7 @@ def _is_host_root_sentinel(root: str | Path | None) -> bool:
 
     POSIX uses ``/``. Windows uses a drive root such as ``C:/`` (what
     :func:`host_fs_tree_root` returns). Treating drive roots as scoped jails
-    would put default workspaces under ``{drive}/.octop/workspaces/…`` instead
+    would put default workspaces under ``{drive}/.xfriend/workspaces/…`` instead
     of ``{OCTOP_HOME}/agents/<id>/``.
     """
     if root is None:
@@ -205,8 +205,8 @@ def resolve_workspace_host_path(raw: str, cfg: dict[str, Any] | None = None) -> 
     """Map persisted ``workspace_dir`` to an on-disk path for Octop host FS ops.
 
     Harness receives the persisted string as-is (no join here). When the DB
-    holds agent-facing ``/.octop/workspaces/…`` and the backend has a scoped
-    ``root_dir``, the on-disk tree is ``{root_dir}/.octop/workspaces/…``.
+    holds agent-facing ``/.xfriend/workspaces/…`` and the backend has a scoped
+    ``root_dir``, the on-disk tree is ``{root_dir}/.xfriend/workspaces/…``.
     """
     text = raw.strip()
     if not text:
@@ -222,7 +222,7 @@ def resolve_workspace_host_path(raw: str, cfg: dict[str, Any] | None = None) -> 
     normalized = text.replace("\\", "/").strip()
     candidate = Path(text).expanduser()
 
-    if normalized == "/" or normalized.startswith("/.octop/"):
+    if normalized == "/" or normalized.startswith("/.xfriend/"):
         rel = normalized.lstrip("/")
         return (root / rel).resolve() if rel else root
 
@@ -247,7 +247,7 @@ def harness_workspace_path(raw: str, cfg: dict[str, Any] | None = None) -> Path:
 
     The persisted value goes through as-is whenever the platform can express it
     as an absolute path. Windows cannot: the agent-facing
-    ``/.octop/workspaces/<id>`` form has no drive letter, and harness rejects a
+    ``/.xfriend/workspaces/<id>`` form has no drive letter, and harness rejects a
     non-absolute workspace — fall back to the on-disk host mapping there.
     """
     text = raw.strip()
@@ -285,13 +285,13 @@ def agent_facing_workspace_root(
     """Agent-visible workspace directory (never ``root_dir``-joined).
 
     Scoped virtual backends map the on-disk workspace back to a rootfs path
-    such as ``/.octop/workspaces/<id>``. Host-rooted layouts keep the workspace
+    such as ``/.xfriend/workspaces/<id>``. Host-rooted layouts keep the workspace
     path string as-is.
     """
     text = str(workspace_dir).strip().replace("\\", "/")
     if not text:
         return ""
-    if text == "/" or text.startswith("/.octop/"):
+    if text == "/" or text.startswith("/.xfriend/"):
         return text if text != "/" else "/"
     if not virtual_mode or root_dir is None or _is_host_root_sentinel(root_dir):
         return text
@@ -312,7 +312,7 @@ def agent_facing_workspace_dir_from_config(cfg: dict[str, Any] | None) -> str:
     if not isinstance(raw, str) or not raw.strip():
         return ""
     text = raw.strip().replace("\\", "/")
-    if text == "/" or text.startswith("/.octop/"):
+    if text == "/" or text.startswith("/.xfriend/"):
         return text
     return agent_facing_workspace_root(
         text,
@@ -344,7 +344,7 @@ def workspace_dir_from_config(
     agent_id: str,
     ensure: bool = True,
 ) -> Path:
-    """On-disk workspace for Octop host ops (may map ``/.octop/…`` under root_dir).
+    """On-disk workspace for Octop host ops (may map ``/.xfriend/…`` under root_dir).
 
     Read-only callers (backup) pass ``ensure=False`` so a stale or unwritable
     ``workspace_dir`` is not created.
@@ -377,7 +377,7 @@ def host_system_dir(workspace_dir: Path, cfg: dict[str, Any] | None) -> Path:
 
 def agent_auth_dir(workspace_dir: Path, cfg: dict[str, Any] | None) -> Path:
     prefix = system_files_path_from_config(cfg)
-    legacy = workspace_dir / ".octop-auth"
+    legacy = workspace_dir / ".xfriend-auth"
     if not prefix:
         return legacy
     canonical = workspace_dir / prefix / "auth"

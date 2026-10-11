@@ -49,15 +49,15 @@ def _temp_scope_token(uid: int | None = None) -> str:
 def _runtime_dir_for_uid(uid: int | None = None) -> Path:
     token = _temp_scope_token(uid)
     if _is_linux():
-        return Path(f"/tmp/runtime-octop-browser-{token}")
-    return Path(tempfile.gettempdir()) / f"runtime-octop-browser-{token}"
+        return Path(f"/tmp/runtime-xfriend-browser-{token}")
+    return Path(tempfile.gettempdir()) / f"runtime-xfriend-browser-{token}"
 
 
 def _relocated_profiles_root_for_uid(uid: int | None = None) -> Path:
     token = _temp_scope_token(uid)
     if _is_linux():
-        return Path(f"/tmp/octop-browser-profiles-{token}")
-    return Path(tempfile.gettempdir()) / f"octop-browser-profiles-{token}"
+        return Path(f"/tmp/xfriend-browser-profiles-{token}")
+    return Path(tempfile.gettempdir()) / f"xfriend-browser-profiles-{token}"
 
 
 def ensure_chrome_runtime_env() -> Path:
@@ -161,11 +161,11 @@ def _probe_dir_writable(directory: Path) -> bool:
     """
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        probe = directory / f".octop-write-{os.getpid()}"
+        probe = directory / f".xfriend-write-{os.getpid()}"
         probe.write_text("ok", encoding="utf-8")
         probe.unlink()
         if _is_linux():
-            link = directory / f".octop-link-{os.getpid()}"
+            link = directory / f".xfriend-link-{os.getpid()}"
             link.symlink_to("probe-target")
             link.unlink()
         return True
@@ -176,8 +176,8 @@ def _probe_dir_writable(directory: Path) -> bool:
 def _under_root_home(path: Path) -> bool:
     """True for paths under ``/root`` that are unsafe for Chrome (YunJing).
 
-    Octop home (``OCTOP_HOME`` / ``~/.octop``) is exempt so shared profiles
-    at ``~/.octop/browser-profiles`` stay put even when running as root.
+    Octop home (``OCTOP_HOME`` / ``~/.xfriend``) is exempt so shared profiles
+    at ``~/.xfriend/browser-profiles`` stay put even when running as root.
     """
     if not sys.platform.startswith("linux"):
         return False
@@ -215,7 +215,7 @@ def ensure_profile_writable(profile_dir: Path) -> Path:
 
     Does not chmod/chown existing trees (that previously broke ``/`` and
     ``/tmp``). Strategy: probe → recreate empty → relocate under
-    ``/tmp/octop-browser-profiles-<uid>``.
+    ``/tmp/xfriend-browser-profiles-<uid>``.
 
     Profiles under ``/root/...`` are relocated proactively: host security
     agents (e.g. YunJing) often allow Python writes but deny the Chrome
@@ -282,7 +282,7 @@ async def prepare_harness_profile_for_launch(
 
     - Forces a writable ``XDG_RUNTIME_DIR``
     - Injects virtual-desktop ``DISPLAY`` when Xvnc is up
-    - Prefers shared ``~/.octop/browser-profiles`` (cross-agent)
+    - Prefers shared ``~/.xfriend/browser-profiles`` (cross-agent)
     - If CDP is already listening, leaves the running browser alone
     - Otherwise kills leftover Chrome for this profile and clears Singleton locks
     - Ensures the profile directory is writable (recreate / relocate if needed)
@@ -473,7 +473,7 @@ async def uninstall_browser_stream(*, locale: str = "en") -> AsyncIterator[str]:
     """Remove Playwright-installed Chromium only (SSE).
 
     Does **not** touch the user's system Chrome/Chromium, and does **not**
-    delete ``~/.octop/browser-profiles`` or leftover ``~/.harness-browser`` data.
+    delete ``~/.xfriend/browser-profiles`` or leftover ``~/.harness-browser`` data.
 
     ``locale`` is reserved for future i18n of log lines.
     """

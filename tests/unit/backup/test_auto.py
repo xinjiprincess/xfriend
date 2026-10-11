@@ -20,12 +20,12 @@ from octop.infra.errors import OctopError
 
 def test_to_auto_backup_filename() -> None:
     assert (
-        to_auto_backup_filename("octop-backup-20260101T000000Z.tar.gz")
-        == "octop-auto-backup-20260101T000000Z.tar.gz"
+        to_auto_backup_filename("xfriend-backup-20260101T000000Z.tar.gz")
+        == "xfriend-auto-backup-20260101T000000Z.tar.gz"
     )
     assert (
-        to_auto_backup_filename("octop-auto-backup-20260101T000000Z.tar.gz")
-        == "octop-auto-backup-20260101T000000Z.tar.gz"
+        to_auto_backup_filename("xfriend-auto-backup-20260101T000000Z.tar.gz")
+        == "xfriend-auto-backup-20260101T000000Z.tar.gz"
     )
 
 

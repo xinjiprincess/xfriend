@@ -160,7 +160,7 @@ def test_fetch_pypi_info_skips_versioned_fetch_when_stable_is_latest(
 def test_build_upgrade_command_prerelease_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    python = "/home/user/.octop/venv/bin/python"
+    python = "/home/user/.xfriend/venv/bin/python"
     uv_cmd = build_upgrade_command("uv", python, allow_prerelease=True, version="0.9.34b1")
     assert uv_cmd is not None
     assert uv_cmd[uv_cmd.index("--prerelease") + 1] == "allow"
@@ -175,7 +175,7 @@ def test_build_upgrade_command_prerelease_flags(
 def test_build_upgrade_command_pins_stable_without_pre(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    python = "/home/user/.octop/venv/bin/python"
+    python = "/home/user/.xfriend/venv/bin/python"
     uv_cmd = build_upgrade_command("uv", python, version="0.9.33")
     assert uv_cmd is not None
     assert "octop==0.9.33" in uv_cmd
@@ -192,7 +192,7 @@ def _fake_windows_scripts(tmp_path: Path) -> Path:
     script_dir.mkdir()
     (script_dir / "python.exe").write_text("python")
     (script_dir / "octop.exe").write_text("launcher")
-    (script_dir / "octop.exe.octop-old").write_text("leftover")
+    (script_dir / "octop.exe.xfriend-old").write_text("leftover")
     (script_dir / "pip.exe").write_text("pip")
     return script_dir
 
@@ -216,10 +216,10 @@ def test_stash_console_scripts_moves_launcher_and_purges_leftovers(
 
     moved = stash_console_scripts(str(script_dir / "python.exe"))
 
-    assert moved == [(script_dir / "octop.exe", script_dir / "octop.exe.octop-old")]
+    assert moved == [(script_dir / "octop.exe", script_dir / "octop.exe.xfriend-old")]
     assert not (script_dir / "octop.exe").exists()
     # The leftover from an earlier upgrade is gone, replaced by the new stash.
-    assert (script_dir / "octop.exe.octop-old").read_text() == "launcher"
+    assert (script_dir / "octop.exe.xfriend-old").read_text() == "launcher"
     assert (script_dir / "pip.exe").exists()
 
 
@@ -234,7 +234,7 @@ def test_restore_console_scripts_puts_launcher_back(
     restore_console_scripts(moved)
 
     assert (script_dir / "octop.exe").read_text() == "launcher"
-    assert not (script_dir / "octop.exe.octop-old").exists()
+    assert not (script_dir / "octop.exe.xfriend-old").exists()
 
 
 @pytest.mark.parametrize("success", [True, False])
@@ -266,7 +266,7 @@ def test_run_upgrade_restores_launcher_only_on_failure(
     assert result.success is success
     expected = "new launcher" if success else "launcher"
     assert (script_dir / "octop.exe").read_text() == expected
-    assert not (script_dir / "octop.exe.octop-old").exists()
+    assert not (script_dir / "octop.exe.xfriend-old").exists()
 
 
 def test_page_has_package_version_matches_wheel_and_sdist() -> None:

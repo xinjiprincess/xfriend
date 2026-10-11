@@ -25,86 +25,6 @@ import {
 import { TabPanelHeader } from "./TabPanelHeader";
 import styles from "./UpdateConfig.module.less";
 
-/** Shell snippets shown in the manual upgrade guide (commands are locale-agnostic). */
-const UPGRADE_GUIDE_CODE = {
-  installerUnix: `curl -fsSL https://finnie-1258344699.cos.ap-guangzhou.myqcloud.com/octop/install.sh | bash`,
-  installerWin: `irm https://finnie-1258344699.cos.ap-guangzhou.myqcloud.com/octop/install.ps1 | iex`,
-  cli: `octop update
-# or non-interactive:
-octop update --yes
-# pre-release (beta) requires --allow-prerelease:
-# octop update --allow-prerelease --yes`,
-  pip: `pip install -U octop
-# optional extras, e.g. browser automation:
-# pip install -U "octop[browser]"`,
-  source: `cd Octop
-git pull
-make build-frontend
-# or: cd dashboard && npm ci && npm run build && cd ..
-pip install -e .
-# with dev deps: make install  /  pip install -e ".[dev]"`,
-  docker: `# Compose (from repo root; rebuild + recreate)
-docker compose -f docker/docker-compose.yml up -d --build
-
-# or rebuild the image then run with a persistent data volume
-bash docker/docker_build.sh
-docker run -d \\
-  --name octop \\
-  -p 8088:8088 \\
-  -v octop-data:/data/.octop \\
-  -e HOME=/data \\
-  octop:latest`,
-  restart: `# system service (systemd / launchd / Windows service)
-octop service restart
-
-# foreground process — stop the old process, then:
-octop run`,
-} as const;
-
-type GuideMethodKey =
-  | "ui"
-  | "installer"
-  | "cli"
-  | "pip"
-  | "source"
-  | "docker"
-  | "restart";
-
-const GUIDE_METHOD_ORDER: GuideMethodKey[] = [
-  "ui",
-  "installer",
-  "cli",
-  "pip",
-  "source",
-  "docker",
-  "restart",
-];
-
-function codeFor(key: GuideMethodKey): string | null {
-  switch (key) {
-    case "installer":
-      return [
-        `# macOS / Linux`,
-        UPGRADE_GUIDE_CODE.installerUnix,
-        ``,
-        `# Windows (PowerShell)`,
-        UPGRADE_GUIDE_CODE.installerWin,
-      ].join("\n");
-    case "cli":
-      return UPGRADE_GUIDE_CODE.cli;
-    case "pip":
-      return UPGRADE_GUIDE_CODE.pip;
-    case "source":
-      return UPGRADE_GUIDE_CODE.source;
-    case "docker":
-      return UPGRADE_GUIDE_CODE.docker;
-    case "restart":
-      return UPGRADE_GUIDE_CODE.restart;
-    default:
-      return null;
-  }
-}
-
 function UpgradeGuide() {
   const { t } = useTranslation();
 
@@ -127,22 +47,9 @@ function UpgradeGuide() {
       <p className={styles.guideNote}>
         {t("advancedSettings.update.guideDataNote")}
       </p>
-      <div className={styles.guideMethods}>
-        {GUIDE_METHOD_ORDER.map((key) => {
-          const code = codeFor(key);
-          return (
-            <div key={key} className={styles.guideMethod}>
-              <p className={styles.guideMethodTitle}>
-                {t(`advancedSettings.update.guide.${key}.title`)}
-              </p>
-              <p className={styles.guideMethodBody}>
-                {t(`advancedSettings.update.guide.${key}.body`)}
-              </p>
-              {code && <pre className={styles.guideCode}>{code}</pre>}
-            </div>
-          );
-        })}
-      </div>
+      <p className={styles.guideMethodBody}>
+        {t("advancedSettings.update.installerUpdateHint")}
+      </p>
     </section>
   );
 }
@@ -528,9 +435,9 @@ export default function UpdateConfig() {
                         <div>
                           <p>{t("advancedSettings.update.restartHint")}</p>
                           <div className={styles.commandBlock}>
-                            <code>octop service restart</code>
+                            <code>xfriend service restart</code>
                             <span className={styles.commandSep}>/</span>
-                            <code>octop run</code>
+                            <code>xfriend run</code>
                           </div>
                         </div>
                       </div>

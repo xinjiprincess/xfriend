@@ -114,3 +114,9 @@ fnos/native/app/site-packages/
 docs/superpowers/
 scripts/lh_image_install_octop_tencentos.sh
 .worktrees/
+
+# Local build tools, validation data and duplicate checkout (never publish).
+/.artifacts/
+/Octop/
+# PCMATE is maintained as an independent application; this is a local checkout.
+/pcdockertools/

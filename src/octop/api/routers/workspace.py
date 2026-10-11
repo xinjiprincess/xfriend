@@ -47,8 +47,8 @@ def _assert_workspace_mutable(path: str) -> str:
     if (
         posix == _PROTECTED_PREFIX
         or posix.startswith(f"{_PROTECTED_PREFIX}/")
-        or posix == f".octop/{_PROTECTED_PREFIX}"
-        or posix.startswith(f".octop/{_PROTECTED_PREFIX}/")
+        or posix == f".xfriend/{_PROTECTED_PREFIX}"
+        or posix.startswith(f".xfriend/{_PROTECTED_PREFIX}/")
     ):
         raise OctopError(ErrorCode.FORBIDDEN, f"cannot modify {_PROTECTED_PREFIX!r} paths")
     return rel
@@ -340,8 +340,8 @@ async def download_file(
 
     See ``from_workspace``: workspace UI uses true; chat/tool downloads use false.
     ``file://`` and other host-absolute paths are allowed for agent/OS tool
-    outputs (Desktop, ``~/.octop/agents/…``, workspace tree) but denied for
-    sensitive system roots (``/etc``, ``.harness-browser``, ``.octop-browser``, Windows system dirs).
+    outputs (Desktop, ``~/.xfriend/agents/…``, workspace tree) but denied for
+    sensitive system roots (``/etc``, ``.harness-browser``, ``.xfriend-browser``, Windows system dirs).
     """
     ws = await require_agent_workspace(agent_id, user=user, as_user=as_user, server=server)
     io_path = _workspace_io_path(path, from_workspace=from_workspace)

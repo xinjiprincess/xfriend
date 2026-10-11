@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,13 +24,27 @@ func startOctop(root string, port int) (*exec.Cmd, error) {
 	cmd := exec.Command(py, launch, "run", "--host", "127.0.0.1", "--port", strconv.Itoa(port))
 	cmd.Dir = root
 	mustEnv(cmd, map[string]string{
-		"OCTOP_HOME":           octopHome(),
-		"OCTOP_GREEN_PACKAGES": filepath.Join(root, "packages"),
-		"PYTHONNOUSERSITE":     "1",
-		"PYTHONPATH":           "",
+		"OCTOP_HOME":                   octopHome(),
+		"OCTOP_GREEN_PACKAGES":         filepath.Join(root, "packages"),
+		"OCTOP_REQUIRE_SETUP_PASSWORD": "false",
+		"PYTHONNOUSERSITE":             "1",
+		"PYTHONPATH":                   "",
+		"PYTHONUTF8":                   "1",
+		"PYTHONUNBUFFERED":             "1",
 	})
 	configureProcGroup(cmd)
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "windows" {
+		if err := os.MkdirAll(filepath.Dir(serviceLogPath()), 0o700); err != nil {
+			return nil, err
+		}
+		logFile, err := os.OpenFile(serviceLogPath(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		defer logFile.Close()
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	} else if runtime.GOOS == "linux" {
 		// The Linux desktop release has no server terminal; the shell owns status
 		// presentation just like the Windows GUI executable.
 		cmd.Stdout = io.Discard
@@ -44,6 +59,10 @@ func startOctop(root string, port int) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
+func serviceLogPath() string {
+	return filepath.Join(octopHome(), "logs", "desktop-service.log")
+}
+
 func stopOctop(cmd *exec.Cmd) {
 	if cmd == nil || cmd.Process == nil {
 		return
@@ -53,4 +72,17 @@ func stopOctop(cmd *exec.Cmd) {
 
 func dashboardURL(port int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d/", port)
+}
+
+// Never connect to an unrelated service when the configured port is occupied.
+func availableLocalPort(preferred int) (int, error) {
+	listener, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(preferred)))
+	if err != nil {
+		listener, err = net.Listen("tcp4", "127.0.0.1:0")
+	}
+	if err != nil {
+		return 0, err
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port, nil
 }

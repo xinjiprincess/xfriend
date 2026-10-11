@@ -39,6 +39,10 @@ async def test_bridge_probe_returns_expert_list(env: Any) -> None:
 
     with (
         patch(
+            "octop.infra.bridge.peer_auth.socket.getaddrinfo",
+            return_value=[(2, 1, 6, "", ("203.0.113.7", 0))],
+        ),
+        patch(
             "octop.infra.bridge.manager.login_peer",
             new=AsyncMock(
                 return_value={
@@ -53,7 +57,7 @@ async def test_bridge_probe_returns_expert_list(env: Any) -> None:
             "/api/bridge/probe",
             headers=auth,
             json={
-                "peer_base_url": "https://demo.octop.chat",
+                "peer_base_url": "https://demo.xfriend.chat",
                 "peer_username": "peer",
                 "password": "secret",
             },
@@ -77,6 +81,6 @@ async def test_bridge_probe_validation(env: Any) -> None:
     r = await client.post(
         "/api/bridge/probe",
         headers=auth,
-        json={"peer_base_url": "https://demo.octop.chat", "peer_username": "", "password": "x"},
+        json={"peer_base_url": "https://demo.xfriend.chat", "peer_username": "", "password": "x"},
     )
     assert r.status_code == 422

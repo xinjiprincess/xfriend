@@ -52,7 +52,7 @@ def _expected_default_backend(manager: AgentManager, agent_id: str) -> dict[str,
 
 @pytest.fixture
 def manager(tmp_path: Path) -> AgentManager:
-    paths = PathLayout(tmp_path / ".octop")
+    paths = PathLayout(tmp_path / ".xfriend")
     paths.ensure_root()
     db = SqlitePool(paths.db)
     run_migrations(db)
@@ -687,6 +687,19 @@ def test_build_harness_config_includes_search_knowledge_without_cron(
     assert cfg.tools is not None
     assert {t.name for t in cfg.tools} == {"search_knowledge"}
     assert any(isinstance(item, KnowledgeSearchHintMiddleware) for item in (cfg.middleware or []))
+
+
+def test_build_harness_config_includes_current_identity_for_existing_experts(
+    manager: AgentManager,
+) -> None:
+    from dataclasses import replace
+
+    from octop.infra.agents.middleware.product_identity import ProductIdentityMiddleware
+
+    row = replace(_row(agent_id="AGT001"), system_prompt="You are an Octop expert.")
+    cfg = manager._build_harness_config(row)
+    assert any(isinstance(item, ProductIdentityMiddleware) for item in (cfg.middleware or []))
+    assert row.system_prompt == "You are an Octop expert."
 
 
 def test_build_harness_config_defaults_local_shell_backend(manager: AgentManager) -> None:
@@ -1565,11 +1578,11 @@ async def test_create_seeds_bootstrap_files(manager: AgentManager) -> None:
     assert cfg.get("workspace_dir") == str(
         manager.paths.ensure_agent_workspace(row.agent_id).resolve()
     )
-    assert cfg.get("system_files_path") == ".octop"
+    assert cfg.get("system_files_path") == ".xfriend"
     ws = manager.resolve_workspace_dir(row.agent_id)
     assert cfg.get("workspace_dir") == str(ws)
     assert (ws / "AGENTS.md").is_file()
-    assert (ws / ".octop" / "_builtin_skills").is_dir() or agent.workspace.exists(
+    assert (ws / ".xfriend" / "_builtin_skills").is_dir() or agent.workspace.exists(
         "_builtin_skills/skill-manager/SKILL.md"
     )
     assert not (ws / "_builtin_skills").exists()
@@ -1599,7 +1612,7 @@ async def test_start_team_host_does_not_copy_builtin_skills(manager: AgentManage
     assert isinstance(agent, HarnessAgent)
     ws = manager.resolve_workspace_dir("TEAM01")
     assert not (ws / "_builtin_skills").exists()
-    assert not (ws / ".octop" / "_builtin_skills").exists()
+    assert not (ws / ".xfriend" / "_builtin_skills").exists()
     assert not agent.workspace.exists("_builtin_skills/skill-manager/SKILL.md")
     assert await agent.list_skill_summaries() == []
     manager._harness_manager.close()
@@ -1660,7 +1673,7 @@ async def test_create_persists_rootfs_workspace_under_scoped_root(
         log_dir=str(manager.paths.logs_dir),
     )
     try:
-        # manager fixture uses ``{tmp_path}/.octop`` as OCTOP_HOME, so scoping
+        # manager fixture uses ``{tmp_path}/.xfriend`` as OCTOP_HOME, so scoping
         # root_dir to tmp_path places the default workspace inside the rootfs.
         row = await manager.create(
             AgentCreateSpec(
@@ -1676,19 +1689,19 @@ async def test_create_persists_rootfs_workspace_under_scoped_root(
             )
         )
         cfg = manager.get_config(row.agent_id)
-        assert cfg["workspace_dir"] == f"/.octop/workspaces/{row.agent_id}"
+        assert cfg["workspace_dir"] == f"/.xfriend/workspaces/{row.agent_id}"
         host = manager.resolve_workspace_dir(row.agent_id)
-        assert host == (tmp_path / ".octop" / "workspaces" / row.agent_id).resolve()
+        assert host == (tmp_path / ".xfriend" / "workspaces" / row.agent_id).resolve()
         assert host.is_dir()
         assert (host / "AGENTS.md").is_file()
         harness_cfg = manager._build_harness_config(row)
         # POSIX hands harness the persisted agent-facing path — not the host join.
         # Windows cannot express it as absolute, so harness gets the host mapping.
         expected_harness_ws = (
-            Path(f"/.octop/workspaces/{row.agent_id}") if os.name == "posix" else host
+            Path(f"/.xfriend/workspaces/{row.agent_id}") if os.name == "posix" else host
         )
         assert Path(harness_cfg.workspace_dir) == expected_harness_ws
-        assert not (tmp_path / ".octop" / "agents" / row.agent_id).exists()
+        assert not (tmp_path / ".xfriend" / "agents" / row.agent_id).exists()
     finally:
         manager._harness_manager.close()
 
@@ -1758,7 +1771,7 @@ def test_resolve_workspace_dir_remaps_unwritable_scoped_root(
         name="stale-jail",
         config_json=json.dumps(
             {
-                "workspace_dir": "/.octop/workspaces/F46T8Y",
+                "workspace_dir": "/.xfriend/workspaces/F46T8Y",
                 "backend": {
                     "type": "local_shell",
                     "virtual_mode": True,
@@ -1872,7 +1885,7 @@ async def test_seed_expert_template_writes_workspace_files(
 
     ws = manager._paths.ensure_agent_workspace("AGT1")
     assert (ws / "SOUL.md").read_text(encoding="utf-8") == "# Soul"
-    manifest = json.loads((ws / ".octop" / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((ws / ".xfriend" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["id"] == "demo"
     assert manifest["welcome_message"]["zh"] == "欢迎"
 
@@ -1961,14 +1974,14 @@ async def test_update_config_json_cannot_change_system_files_path(
     row = await manager.create(AgentCreateSpec(name="sysfiles-fixed"), defer_bootstrap=True)
     monkeypatch.setattr(manager, "_schedule_reload", lambda _aid: None)
 
-    assert manager.get_config(row.agent_id).get("system_files_path") == ".octop"
+    assert manager.get_config(row.agent_id).get("system_files_path") == ".xfriend"
 
     await manager.update_config_json(
         row.agent_id,
         json.dumps({"system_files_path": "", "foo": 1}),
     )
 
-    assert manager.get_config(row.agent_id).get("system_files_path") == ".octop"
+    assert manager.get_config(row.agent_id).get("system_files_path") == ".xfriend"
 
 
 @pytest.mark.asyncio
@@ -2024,7 +2037,7 @@ async def test_reload_agent_does_not_block_event_loop(
 
     from octop.infra.agents.manager import AgentCreateSpec, AgentManager
 
-    paths = PathLayout(tmp_path / ".octop")
+    paths = PathLayout(tmp_path / ".xfriend")
     paths.ensure_root()
     db = SqlitePool(paths.db)
     run_migrations(db)
@@ -2209,8 +2222,8 @@ def test_peer_manifest_metadata_missing_file(manager: AgentManager) -> None:
 def test_peer_manifest_metadata_bad_json(manager: AgentManager) -> None:
     manager._repos.agent_repo.create(agent_id="AGT1", user_id=None, name="demo")
     ws = manager._paths.ensure_agent_workspace("AGT1")
-    (ws / ".octop").mkdir(parents=True, exist_ok=True)
-    (ws / ".octop" / "manifest.json").write_text("{", encoding="utf-8")
+    (ws / ".xfriend").mkdir(parents=True, exist_ok=True)
+    (ws / ".xfriend" / "manifest.json").write_text("{", encoding="utf-8")
     assert manager._peer_manifest_metadata("AGT1", "row") == {}
 
 
@@ -2219,8 +2232,8 @@ def test_peer_manifest_metadata_reads_cards(manager: AgentManager) -> None:
         agent_id="AGT1", user_id=None, name="demo", description="from-db"
     )
     ws = manager._paths.ensure_agent_workspace("AGT1")
-    (ws / ".octop").mkdir(parents=True, exist_ok=True)
-    (ws / ".octop" / "manifest.json").write_text(
+    (ws / ".xfriend").mkdir(parents=True, exist_ok=True)
+    (ws / ".xfriend" / "manifest.json").write_text(
         json.dumps(
             {
                 "description": {"zh": "manifest-only", "en": "manifest-only"},
@@ -2245,8 +2258,8 @@ def test_refresh_peer_entry_picks_up_manifest_edits(manager: AgentManager) -> No
         agent_id="AGT1", user_id=None, name="demo", description="from-db"
     )
     ws = manager._paths.ensure_agent_workspace("AGT1")
-    (ws / ".octop").mkdir(parents=True, exist_ok=True)
-    (ws / ".octop" / "manifest.json").write_text(
+    (ws / ".xfriend").mkdir(parents=True, exist_ok=True)
+    (ws / ".xfriend" / "manifest.json").write_text(
         json.dumps(
             {
                 "quick_prompts": [
@@ -2274,8 +2287,8 @@ def test_refresh_peer_entry_picks_up_manifest_edits(manager: AgentManager) -> No
 def test_refresh_peer_entry_clears_empty_cards(manager: AgentManager) -> None:
     manager._repos.agent_repo.create(agent_id="AGT1", user_id=None, name="demo")
     ws = manager._paths.ensure_agent_workspace("AGT1")
-    (ws / ".octop").mkdir(parents=True, exist_ok=True)
-    (ws / ".octop" / "manifest.json").write_text(
+    (ws / ".xfriend").mkdir(parents=True, exist_ok=True)
+    (ws / ".xfriend" / "manifest.json").write_text(
         json.dumps({"quick_prompts": []}),
         encoding="utf-8",
     )

@@ -15,34 +15,39 @@ const (
 	LocaleEN Locale = "en"
 )
 
-// Settings is persisted at ~/.octop/desktop-settings.json
+// Settings is persisted at ~/.xfriend/desktop-settings.json.
 type Settings struct {
 	Locale         Locale `json:"locale"`
 	Autostart      bool   `json:"autostart"`
 	MinimizeToTray bool   `json:"minimizeToTray"`
 	PreventSleep   bool   `json:"preventSleep"`
 	Port           int    `json:"port,omitempty"`
+	WakeWord       string `json:"wakeWord"`
 }
 
 func defaultSettings() Settings {
 	return Settings{
-		Locale:         LocaleEN,
+		Locale:         LocaleZH,
 		Autostart:      false,
 		MinimizeToTray: true,
 		PreventSleep:   false,
-		Port:           8088,
+		Port:           18088,
+		WakeWord:       "小星",
 	}
 }
 
 func octopHome() string {
+	if v := os.Getenv("XFRIEND_HOME"); v != "" {
+		return v
+	}
 	if v := os.Getenv("OCTOP_HOME"); v != "" {
 		return v
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".octop"
+		return ".xfriend"
 	}
-	return filepath.Join(home, ".octop")
+	return filepath.Join(home, ".xfriend")
 }
 
 func portableDir() string {
@@ -73,10 +78,10 @@ func loadSettings() Settings {
 		s.PreventSleep = legacy.PreventSleepMac
 	}
 	if s.Port == 0 {
-		s.Port = 8088
+		s.Port = defaultSettings().Port
 	}
-	if s.Locale != LocaleZH {
-		s.Locale = LocaleEN
+	if s.Locale != LocaleZH && s.Locale != LocaleEN {
+		s.Locale = LocaleZH
 	}
 	return s
 }
@@ -91,7 +96,7 @@ func (st *settingsStore) save(next Settings) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if next.Port == 0 {
-		next.Port = 8088
+		next.Port = defaultSettings().Port
 	}
 	if err := os.MkdirAll(octopHome(), 0o755); err != nil {
 		return err

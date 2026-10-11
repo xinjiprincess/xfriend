@@ -1,4 +1,4 @@
-"""octop agent commands."""
+"""xfriend agent commands."""
 
 from __future__ import annotations
 

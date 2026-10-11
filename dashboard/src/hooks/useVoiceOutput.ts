@@ -14,7 +14,9 @@ import { WavStreamPlayer } from "../utils/wavStreamPlayer";
 
 import { message as antMessage } from "@/utils/antdMessage";
 
-export function useVoiceOutput() {
+export function useVoiceOutput(options?: { tts?: string; voiceId?: string }) {
+  const preferredTts = options?.tts || undefined;
+  const preferredVoice = options?.voiceId || undefined;
   const { t } = useTranslation();
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -61,7 +63,11 @@ export function useVoiceOutput() {
       streamPlayerRef.current = player;
       try {
         if (!player.ensureContext()) return false;
-        const { contentType, body } = await voiceApi.synthesizeStream(plain);
+        const { contentType, body } = await voiceApi.synthesizeStream(
+          plain,
+          preferredTts,
+          preferredVoice,
+        );
         if (
           !contentType.includes("audio/wav") &&
           !contentType.includes("audio/wave")
@@ -112,7 +118,7 @@ export function useVoiceOutput() {
         return false;
       }
     },
-    [finishSpeaking],
+    [finishSpeaking, preferredTts, preferredVoice],
   );
 
   const speakWithServer = useCallback(
@@ -120,13 +126,17 @@ export function useVoiceOutput() {
       // MiMo streams a live WAV — play it chunk-by-chunk for low latency.
       // Other providers stream MP3, which needs the buffered blob path.
       const active = cachedActiveVoice();
-      const ttsProvider = provider ?? active?.tts;
+      const ttsProvider = provider ?? preferredTts ?? active?.tts;
       if (ttsProvider === "mimo-tts" || ttsProvider === "mimo") {
         if (await speakMimoStream(plain, gen)) return;
       }
 
       try {
-        const blob = await voiceApi.synthesize(plain, provider);
+        const blob = await voiceApi.synthesize(
+          plain,
+          provider ?? preferredTts,
+          preferredVoice,
+        );
         if (playGenerationRef.current !== gen) return;
 
         const url = URL.createObjectURL(blob);
@@ -163,7 +173,7 @@ export function useVoiceOutput() {
         finishSpeaking();
       }
     },
-    [finishSpeaking, speakMimoStream, t],
+    [finishSpeaking, speakMimoStream, t, preferredTts, preferredVoice],
   );
 
   const speakWithBrowser = useCallback(
@@ -233,20 +243,25 @@ export function useVoiceOutput() {
 
       const cached = cachedActiveVoice();
       if (cached || isMobileUserAgent()) {
-        beginPlayback(messageId, plain, gen, cached?.tts ?? "browser");
+        beginPlayback(
+          messageId,
+          plain,
+          gen,
+          preferredTts ?? cached?.tts ?? "browser",
+        );
         return;
       }
 
       void fetchActiveVoice()
         .then((active) => {
-          beginPlayback(messageId, plain, gen, active.tts);
+          beginPlayback(messageId, plain, gen, preferredTts ?? active.tts);
         })
         .catch(() => {
           if (playGenerationRef.current !== gen) return;
           antMessage.error(t("voice.ttsFailed"));
         });
     },
-    [abortPlayback, beginPlayback, primeMobileAudio, t],
+    [abortPlayback, beginPlayback, primeMobileAudio, t, preferredTts],
   );
 
   return { speakingId, speak, stop: abortPlayback };

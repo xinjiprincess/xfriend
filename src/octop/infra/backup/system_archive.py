@@ -56,8 +56,8 @@ _SKILL_PACKAGES_DIR = "skill-packages"
 _PLUGINS_DIR = "plugins"
 _KNOWLEDGE_DIR = "knowledge"
 _MANIFEST_NAME = "manifest.json"
-_SQLITE_DB_ARC = f"{_DB_DIR}/octop.db"
-_PG_DUMP_ARC = f"{_DB_DIR}/octop.dump"
+_SQLITE_DB_ARC = f"{_DB_DIR}/xfriend.db"
+_PG_DUMP_ARC = f"{_DB_DIR}/xfriend.dump"
 _MIGRATION_VERSION_SUFFIX = "-migrated-from-lightclaw"
 
 # Align with workspace zip export; keep backups smaller / faster.
@@ -86,7 +86,7 @@ def _timestamp() -> str:
 
 def suggested_backup_filename() -> str:
     """Canonical basename for a newly created manual backup archive."""
-    return f"octop-backup-{_timestamp()}.tar.gz"
+    return f"xfriend-backup-{_timestamp()}.tar.gz"
 
 
 def _should_skip_path(
@@ -206,7 +206,7 @@ def create_system_backup(
     keeps live chats and omitted directories when the manifest says they were
     not packed.
 
-    Returns the suggested basename (``octop-backup-….tar.gz``). Callers that
+    Returns the suggested basename (``xfriend-backup-….tar.gz``). Callers that
     need a different name should rename/move *dest* afterward.
     """
     if pool.dialect == "postgresql":

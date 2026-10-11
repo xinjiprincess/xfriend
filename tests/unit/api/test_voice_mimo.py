@@ -16,6 +16,7 @@ from octop.infra.voice.adapters import (
     MIMO_PRESET_VOICES,
     _normalize_mimo_voice,
     _wav_header,
+    mimo_synthesis_payload,
     synthesize_mimo,
 )
 
@@ -58,6 +59,38 @@ def _sse(*events: dict[str, Any]) -> bytes:
 
 def _audio_event(pcm: bytes) -> dict[str, Any]:
     return {"choices": [{"delta": {"audio": {"data": base64.b64encode(pcm).decode("ascii")}}}]}
+
+
+def test_voice_design_uses_description_without_preset_voice() -> None:
+    row = _mimo_row(
+        extra={"tts_model": "mimo-v2.5-tts-voicedesign", "voice_description": "warm voice"}
+    )
+    payload = mimo_synthesis_payload(row, "hello")
+    assert payload["messages"] == [
+        {"role": "user", "content": "warm voice"},
+        {"role": "assistant", "content": "hello"},
+    ]
+    assert payload["audio"] == {"format": "pcm16"}
+
+
+def test_voice_clone_passes_sample_not_preset_voice() -> None:
+    sample = "data:audio/wav;base64," + base64.b64encode(b"sample").decode()
+    row = _mimo_row(extra={"tts_model": "mimo-v2.5-tts-voiceclone", "voice_sample": sample})
+    assert mimo_synthesis_payload(row, "hello")["audio"]["voice"] == sample
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"tts_model": "mimo-v2.5-tts-voicedesign"},
+        {"tts_model": "mimo-v2.5-tts-voiceclone", "voice_sample": "https://example.com/voice.wav"},
+        {"tts_model": "mimo-v2.5-tts-voiceclone", "voice_sample": "data:audio/wav;base64,!!!"},
+        {"tts_model": "unexpected"},
+    ],
+)
+def test_invalid_custom_voice_is_rejected(extra: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        mimo_synthesis_payload(_mimo_row(extra=extra), "hello")
 
 
 @pytest.fixture

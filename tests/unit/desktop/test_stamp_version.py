@@ -45,9 +45,10 @@ def test_stamp_info_json_copies_and_sets_version(tmp_path: Path) -> None:
     stamp_version.stamp_info_json(src, dest, "1.2.3")
     data = json.loads(dest.read_text(encoding="utf-8"))
     assert data["fixed"]["file_version"] == "1.2.3.0"
-    assert data["info"]["0000"]["ProductVersion"] == "1.2.3"
+    assert data["info"]["0409"]["ProductVersion"] == "1.2.3"
+    assert data["info"]["0409"]["FileVersion"] == "1.2.3"
     original = json.loads(src.read_text(encoding="utf-8"))
-    assert original["info"]["0000"]["CompanyName"] == data["info"]["0000"]["CompanyName"]
+    assert original["info"]["0409"]["CompanyName"] == data["info"]["0409"]["CompanyName"]
 
 
 def test_stamp_info_json_pep440_prerelease_keeps_display(tmp_path: Path) -> None:
@@ -58,7 +59,7 @@ def test_stamp_info_json_pep440_prerelease_keeps_display(tmp_path: Path) -> None
     stamp_version.stamp_info_json(src, dest, "1.0.2b1")
     data = json.loads(dest.read_text(encoding="utf-8"))
     assert data["fixed"]["file_version"] == "1.0.2.0"
-    assert data["info"]["0000"]["ProductVersion"] == "1.0.2b1"
+    assert data["info"]["0409"]["ProductVersion"] == "1.0.2b1"
 
 
 def test_stamp_info_json_dev_keeps_source_version(tmp_path: Path) -> None:
@@ -98,7 +99,7 @@ def test_stamp_manifest_sets_octop_identity_only(tmp_path: Path) -> None:
     dest = tmp_path / "wails.exe.generated.manifest"
     stamp_version.stamp_manifest(src, dest, "1.2.3")
     text = dest.read_text(encoding="utf-8")
-    assert 'name="com.tencent.octop" version="1.2.3.0"' in text
+    assert 'name="com.singu.xfriend" version="1.2.3.0"' in text
     assert 'name="Microsoft.Windows.Common-Controls" version="6.0.0.0"' in text
 
 
@@ -114,7 +115,7 @@ def test_stamp_manifest_pep440_prerelease(tmp_path: Path) -> None:
     dest = tmp_path / "wails.exe.generated.manifest"
     stamp_version.stamp_manifest(src, dest, "1.0.2b1")
     text = dest.read_text(encoding="utf-8")
-    assert 'name="com.tencent.octop" version="1.0.2.0"' in text
+    assert 'name="com.singu.xfriend" version="1.0.2.0"' in text
 
 
 def test_write_nsis_defines_pep440(tmp_path: Path) -> None:

@@ -5,13 +5,13 @@
 version: "3"
 
 info:
-  companyName: "Octop"
-  productName: "Octop"
-  productIdentifier: "com.tencent.octop"
-  description: "Octop desktop shell"
-  copyright: "(c) 2026, Octop"
+  companyName: "Singu Xfriend"
+  productName: "Singu Xfriend"
+  productIdentifier: "com.singu.xfriend"
+  description: "Singu Xfriend desktop shell"
+  copyright: "(c) 2026, Singu Xfriend"
   comments: "Wails v3 + green portable"
-  version: "0.9.26"
+  version: "1.4.0"
 
 dev_mode:
   root_path: .

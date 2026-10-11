@@ -14,7 +14,7 @@ from octop.infra.utils.paths import PathLayout
 
 def test_build_shared_services(tmp_path: Path):
     cfg = OctopConfig()
-    paths = PathLayout(tmp_path / ".octop")
+    paths = PathLayout(tmp_path / ".xfriend")
     paths.ensure_root()
     db = SqlitePool(paths.db)
     run_migrations(db)

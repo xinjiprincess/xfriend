@@ -13,6 +13,9 @@ import {
   Activity,
 } from "lucide-react";
 import { Alert, Button, Tooltip } from "antd";
+import ConversationExport from "../../components/ConversationExport";
+import { executionApi } from "../../api/modules/execution";
+import { Navigate } from "react-router-dom";
 import { message as antMessage } from "@/utils/antdMessage";
 import { showConfirmModal } from "../../utils/confirmModal";
 import PlanReadyCard from "./components/PlanReadyCard";
@@ -113,10 +116,47 @@ import {
 import styles from "./index.module.less";
 
 export default function ChatPage() {
+  const { agentId, threadId } = useParams();
+  const [binding, setBinding] = useState<{ agentId: string; engine: string }>();
+  const { t } = useTranslation();
+  useEffect(() => {
+    if (!agentId || threadId) return;
+    let disposed = false;
+    setBinding(undefined);
+    void executionApi
+      .experts()
+      .then((items) => {
+        if (!disposed)
+          setBinding({
+            agentId,
+            engine:
+              items.find((item) => item.id === agentId)?.engine || "native",
+          });
+      })
+      .catch(() => {
+        if (!disposed) setBinding({ agentId, engine: "error" });
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [agentId, threadId]);
+  if (agentId && !threadId) {
+    if (!binding || binding.agentId !== agentId) return null;
+    if (binding.engine === "error")
+      return <Alert type="error" message={t("execution.failed")} />;
+    if (binding.engine === "dsh")
+      return (
+        <Navigate
+          to={`/execution?expert=${encodeURIComponent(agentId)}`}
+          replace
+        />
+      );
+  }
   return <ChatPageInner />;
 }
 
 function ChatPageInner() {
+  const [exportOpen, setExportOpen] = useState(false);
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1340,6 +1380,7 @@ function ChatPageInner() {
                 onPin={pinSession}
                 onFork={handleForkSession}
                 onDelete={handleDeleteSession}
+                onExport={() => setExportOpen(true)}
                 forkDisabled={sessionForkDisabled}
                 forkDisabledHint={sessionForkDisabledHint}
                 isTeam={isTeamChat}
@@ -1775,6 +1816,14 @@ function ChatPageInner() {
                 setAgentProfileOpen(false);
                 setProfileAgentId(null);
               }}
+            />
+          )}
+          {resolvedAgentId && activeThreadId && (
+            <ConversationExport
+              agent={resolvedAgentId}
+              thread={activeThreadId}
+              open={exportOpen}
+              onClose={() => setExportOpen(false)}
             />
           )}
           {trajectoryEnabled && (

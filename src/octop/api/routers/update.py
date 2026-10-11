@@ -21,6 +21,7 @@ from octop.api.routers.update_store import (
     get_task,
     update_task,
 )
+from octop.i18n import tr
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.server import OctopServer
 from octop.infra.setup.self_update import (
@@ -41,6 +42,7 @@ from octop.infra.setup.service import (
     is_service_installed,
     restart_service,
 )
+from octop.infra.utils.locale import DEFAULT_LOCALE
 
 logger = logging.getLogger(__name__)
 
@@ -184,13 +186,19 @@ def _resolve_upgrade_target(
     return _channel_latest(latest_any, latest_stable, include_prerelease=not stable_only)
 
 
-@router.get("/status")
+@router.get(
+    "/status",
+    summary="Read available updates",
+    description="Desktop builds use the Singu Xfriend installer; source/server builds check the package registry.",
+)
 async def update_status(
     _: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Return last check result; re-probe PyPI when the server cache TTL expires."""
     stable_only = _read_stable_only(server)
+    if _is_desktop_process():
+        return _build_status(latest=get_local_version(), stable_only=stable_only)
     cached = get_cached_status()
     if cached is not None:
         return _auto_status(cached, stable_only=stable_only)
@@ -201,12 +209,14 @@ async def update_status(
     )
 
 
-@router.post("/check")
+@router.post("/check", summary="Check for updates")
 async def check_for_updates(
     _: Any = Depends(require_permission("update")),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     stable_only = _read_stable_only(server)
+    if _is_desktop_process():
+        return _build_status(latest=get_local_version(), stable_only=stable_only)
     pypi_info = await asyncio.to_thread(fetch_pypi_info)
     if pypi_info is None:
         return await asyncio.to_thread(
@@ -313,12 +323,18 @@ async def _upgrade_worker(
     )
 
 
-@router.post("/upgrade")
+@router.post(
+    "/upgrade",
+    summary="Upgrade a server installation",
+    description="Desktop builds reject package upgrades and must be updated with their installer.",
+)
 async def trigger_upgrade(
     body: UpgradeBody = Body(default_factory=UpgradeBody),
     server: Any = Depends(get_server),
     _: Any = Depends(require_permission("update")),
 ) -> dict[str, Any]:
+    if _is_desktop_process():
+        raise OctopError(ErrorCode.FORBIDDEN, tr("migration.installer_required", DEFAULT_LOCALE))
     if get_editable_path() is not None:
         raise OctopError(
             ErrorCode.FORBIDDEN,

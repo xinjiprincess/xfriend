@@ -1,4 +1,4 @@
-"""octop config — CLI defaults (user / agent pins)."""
+"""xfriend config — CLI defaults (user / agent pins)."""
 
 from __future__ import annotations
 

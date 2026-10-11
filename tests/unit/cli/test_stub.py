@@ -12,7 +12,7 @@ def test_not_applicable_exits_with_code_2(capsys: pytest.CaptureFixture[str]) ->
         not_applicable("Octop has no embedding subsystem")
     assert exc.value.code == EXIT_NOT_APPLICABLE
     err = capsys.readouterr().err
-    assert "Not applicable for Octop" in err
+    assert "Not applicable for Singu Xfriend" in err
     assert "Octop has no embedding subsystem" in err
 
 

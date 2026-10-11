@@ -44,24 +44,24 @@ async def test_export_and_merge_import(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_export_includes_hidden_and_runtime_dirs(tmp_path: Path) -> None:
-    """Workspace zip must pack the full tree, including ``.octop`` and ``outbound``.
+    """Workspace zip must pack the full tree, including ``.xfriend`` and ``outbound``.
 
     ``aglob("**/*")`` skips dotfiles, which previously left archives with only a
     handful of root markdown files.
     """
     home = tmp_path / "home"
-    workspace_dir = home / ".octop" / "workspaces" / "AGT1"
+    workspace_dir = home / ".xfriend" / "workspaces" / "AGT1"
     (workspace_dir / "outbound" / "shots").mkdir(parents=True)
     (workspace_dir / "inbound").mkdir(parents=True)
-    (workspace_dir / ".octop" / "sessions").mkdir(parents=True)
-    (workspace_dir / ".octop" / "skills" / "demo").mkdir(parents=True)
+    (workspace_dir / ".xfriend" / "sessions").mkdir(parents=True)
+    (workspace_dir / ".xfriend" / "skills" / "demo").mkdir(parents=True)
 
     (workspace_dir / "SOUL.md").write_bytes(b"soul")
     (workspace_dir / ".env").write_bytes(b"KEY=1")
     (workspace_dir / "outbound" / "shots" / "a.png").write_bytes(b"png")
     (workspace_dir / "inbound" / "upload.txt").write_bytes(b"up")
-    (workspace_dir / ".octop" / "sessions" / "state.db").write_bytes(b"db")
-    (workspace_dir / ".octop" / "skills" / "demo" / "SKILL.md").write_bytes(b"skill")
+    (workspace_dir / ".xfriend" / "sessions" / "state.db").write_bytes(b"db")
+    (workspace_dir / ".xfriend" / "skills" / "demo" / "SKILL.md").write_bytes(b"skill")
     (workspace_dir / ".git" / "objects").mkdir(parents=True)
     (workspace_dir / ".git" / "objects" / "pack").write_bytes(b"skip-me")
 
@@ -69,7 +69,7 @@ async def test_export_includes_hidden_and_runtime_dirs(tmp_path: Path) -> None:
         {"type": "filesystem", "root_dir": str(home), "virtual_mode": True},
         workspace_dir=workspace_dir,
     )
-    workspace = BackendWorkspace(backend, workspace_dir, system_files_path=".octop")
+    workspace = BackendWorkspace(backend, workspace_dir, system_files_path=".xfriend")
 
     blob = await export_workspace_zip(workspace)
     with zipfile.ZipFile(io.BytesIO(blob), "r") as zf:
@@ -78,8 +78,8 @@ async def test_export_includes_hidden_and_runtime_dirs(tmp_path: Path) -> None:
         assert zf.read(".env") == b"KEY=1"
         assert zf.read("outbound/shots/a.png") == b"png"
         assert zf.read("inbound/upload.txt") == b"up"
-        assert zf.read(".octop/sessions/state.db") == b"db"
-        assert zf.read(".octop/skills/demo/SKILL.md") == b"skill"
+        assert zf.read(".xfriend/sessions/state.db") == b"db"
+        assert zf.read(".xfriend/skills/demo/SKILL.md") == b"skill"
     assert ".git/objects/pack" not in names
 
 
@@ -112,7 +112,7 @@ async def test_export_ignores_same_named_file_at_backend_root(tmp_path: Path) ->
     while the entry name still said ``AGENTS.md``.
     """
     home = tmp_path / "home"
-    workspace_dir = home / ".octop" / "workspaces" / "AGT1"
+    workspace_dir = home / ".xfriend" / "workspaces" / "AGT1"
     workspace_dir.mkdir(parents=True)
 
     (home / "AGENTS.md").write_bytes(b"backend-root AGENTS.md")
@@ -123,7 +123,7 @@ async def test_export_ignores_same_named_file_at_backend_root(tmp_path: Path) ->
         {"type": "filesystem", "root_dir": str(home), "virtual_mode": True},
         workspace_dir=workspace_dir,
     )
-    workspace = BackendWorkspace(backend, workspace_dir, system_files_path=".octop")
+    workspace = BackendWorkspace(backend, workspace_dir, system_files_path=".xfriend")
 
     blob = await export_workspace_zip(workspace)
     with zipfile.ZipFile(io.BytesIO(blob), "r") as zf:
@@ -135,14 +135,14 @@ async def test_export_ignores_same_named_file_at_backend_root(tmp_path: Path) ->
 async def test_replace_import_keeps_system_state(tmp_path: Path) -> None:
     """``replace`` must not wipe hidden state absent from older archives.
 
-    New exports include ``.octop``, but clearing it on replace would still destroy
+    New exports include ``.xfriend``, but clearing it on replace would still destroy
     sessions/auth when the uploaded zip is an older archive that omitted them.
     """
     ws = tmp_path / "ws"
-    (ws / ".octop" / "sessions").mkdir(parents=True)
-    (ws / ".octop" / "sessions" / "state.db").write_bytes(b"SESSION DB")
-    (ws / ".octop" / "auth").mkdir(parents=True)
-    (ws / ".octop" / "auth" / "token.json").write_bytes(b"TOKEN")
+    (ws / ".xfriend" / "sessions").mkdir(parents=True)
+    (ws / ".xfriend" / "sessions" / "state.db").write_bytes(b"SESSION DB")
+    (ws / ".xfriend" / "auth").mkdir(parents=True)
+    (ws / ".xfriend" / "auth" / "token.json").write_bytes(b"TOKEN")
     (ws / "old.txt").write_text("old", encoding="utf-8")
 
     buf = io.BytesIO()
@@ -157,8 +157,8 @@ async def test_replace_import_keeps_system_state(tmp_path: Path) -> None:
     assert result["imported"] == 1
     assert not (ws / "old.txt").exists()  # visible content is still replaced
     assert (ws / "new.txt").read_bytes() == b"new"
-    assert (ws / ".octop" / "sessions" / "state.db").read_bytes() == b"SESSION DB"
-    assert (ws / ".octop" / "auth" / "token.json").read_bytes() == b"TOKEN"
+    assert (ws / ".xfriend" / "sessions" / "state.db").read_bytes() == b"SESSION DB"
+    assert (ws / ".xfriend" / "auth" / "token.json").read_bytes() == b"TOKEN"
 
 
 @pytest.mark.asyncio
@@ -166,11 +166,11 @@ async def test_export_reads_legacy_root_system_dir_from_workspace(tmp_path: Path
     """A legacy root ``skills/`` must not be shadowed by the backend root either.
 
     ``workspace.resolve_path()`` re-maps ``skills/`` under ``system_files_path``
-    (``.octop``), so probing it for a workspace that still keeps legacy root
+    (``.xfriend``), so probing it for a workspace that still keeps legacy root
     ``skills/`` misses and falls back to the shadowed relative read.
     """
     home = tmp_path / "home"
-    workspace_dir = home / ".octop" / "workspaces" / "AGT1"
+    workspace_dir = home / ".xfriend" / "workspaces" / "AGT1"
     (workspace_dir / "skills" / "demo").mkdir(parents=True)
     (home / "skills" / "demo").mkdir(parents=True)
 
@@ -181,7 +181,7 @@ async def test_export_reads_legacy_root_system_dir_from_workspace(tmp_path: Path
         {"type": "filesystem", "root_dir": str(home), "virtual_mode": True},
         workspace_dir=workspace_dir,
     )
-    workspace = BackendWorkspace(backend, workspace_dir, system_files_path=".octop")
+    workspace = BackendWorkspace(backend, workspace_dir, system_files_path=".xfriend")
 
     blob = await export_workspace_zip(workspace)
     with zipfile.ZipFile(io.BytesIO(blob), "r") as zf:
@@ -224,7 +224,7 @@ async def test_export_mountless_includes_hidden_via_aglob(tmp_path: Path) -> Non
         _MountlessBackend(
             {
                 "/SOUL.md": b"soul",
-                "/.octop/sessions/x.db": b"db",
+                "/.xfriend/sessions/x.db": b"db",
                 "/outbound/a.txt": b"out",
             }
         ),
@@ -234,8 +234,8 @@ async def test_export_mountless_includes_hidden_via_aglob(tmp_path: Path) -> Non
     blob = await export_workspace_zip(workspace)
     with zipfile.ZipFile(io.BytesIO(blob), "r") as zf:
         names = set(zf.namelist())
-        assert names == {"SOUL.md", ".octop/sessions/x.db", "outbound/a.txt"}
-        assert zf.read(".octop/sessions/x.db") == b"db"
+        assert names == {"SOUL.md", ".xfriend/sessions/x.db", "outbound/a.txt"}
+        assert zf.read(".xfriend/sessions/x.db") == b"db"
         assert zf.read("outbound/a.txt") == b"out"
 
 
@@ -256,13 +256,13 @@ async def test_import_skips_octop_builtin_skills(tmp_path: Path) -> None:
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("notes.md", "keep me")
         zf.writestr("_builtin_skills/evil/SKILL.md", "plant")
-        zf.writestr(".octop/_builtin_skills/evil/SKILL.md", "plant")
+        zf.writestr(".xfriend/_builtin_skills/evil/SKILL.md", "plant")
     data = buf.getvalue()
 
     result = await import_workspace_zip(workspace, data, mode="merge", local_workspace_dir=None)
 
     assert (ws / "notes.md").read_bytes() == b"keep me"
     assert not (ws / "_builtin_skills").exists()
-    assert not (ws / ".octop" / "_builtin_skills").exists()
+    assert not (ws / ".xfriend" / "_builtin_skills").exists()
     assert result["imported"] == 1
     assert any("_builtin_skills" in warning for warning in result["warnings"])

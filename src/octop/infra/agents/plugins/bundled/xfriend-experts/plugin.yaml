@@ -1,0 +1,6 @@
+id: xfriend-experts
+version: 1.0.0
+name: Xfriend 执行专家
+description: 原生规划、DSH 执行和原生审核专家模板
+kind: tool
+entry: main.py

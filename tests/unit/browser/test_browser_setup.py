@@ -158,8 +158,8 @@ def test_non_linux_temp_dirs_use_gettempdir_with_stable_token(
     runtime = _runtime_dir_for_uid(uid=7)
     profiles = _relocated_profiles_root_for_uid(uid=7)
 
-    assert runtime == fake_tmp / "runtime-octop-browser-7"
-    assert profiles == fake_tmp / "octop-browser-profiles-7"
+    assert runtime == fake_tmp / "runtime-xfriend-browser-7"
+    assert profiles == fake_tmp / "xfriend-browser-profiles-7"
     # Same inputs → same paths across "process restarts" (no pid in the name).
     assert _runtime_dir_for_uid(uid=7) == runtime
     assert _relocated_profiles_root_for_uid(uid=7) == profiles
@@ -318,7 +318,7 @@ def test_ensure_profile_writable_never_chmods_system_paths(
     monkeypatch.setattr(browser_setup, "_under_root_home", lambda _p: False)
     monkeypatch.setattr(browser_setup, "_probe_dir_writable", lambda _p: True)
 
-    profile = Path(f"/tmp/octop-browser-profiles-{os.getuid()}") / "default"
+    profile = Path(f"/tmp/xfriend-browser-profiles-{os.getuid()}") / "default"
     ensure_profile_writable(profile)
 
     # Profile prep no longer chmod/chown at all — recreate/relocate only.
@@ -385,12 +385,12 @@ def test_under_root_home_exempts_octop_home(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(browser_setup.sys, "platform", "linux")
 
     def _fake_from_env() -> PathLayout:
-        return PathLayout(root=Path("/root/.octop"))
+        return PathLayout(root=Path("/root/.xfriend"))
 
     monkeypatch.setattr(
         "octop.infra.utils.paths.PathLayout.from_env",
         staticmethod(_fake_from_env),
     )
 
-    assert browser_setup._under_root_home(Path("/root/.octop/browser-profiles/default")) is False
+    assert browser_setup._under_root_home(Path("/root/.xfriend/browser-profiles/default")) is False
     assert browser_setup._under_root_home(Path("/root/.harness-browser/profiles/default")) is True

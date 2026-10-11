@@ -8,10 +8,10 @@ if ! [[ "$GEOMETRY" =~ ^[0-9]{3,5}x[0-9]{3,5}$ ]]; then
   exit 1
 fi
 
-INSTALL_ROOT="/opt/octop-desktop"
-CONF_DIR="/etc/octop-desktop"
+INSTALL_ROOT="/opt/xfriend-desktop"
+CONF_DIR="/etc/xfriend-desktop"
 DISPLAY_NUM=":99"
-OCTOP_HOME="${OCTOP_HOME:-/root/.octop}"
+OCTOP_HOME="${OCTOP_HOME:-/root/.xfriend}"
 DESKTOP_STATE_DIR="${OCTOP_HOME}/desktop"
 DESKTOP_ENV="${DESKTOP_STATE_DIR}/desktop.env"
 
@@ -32,11 +32,11 @@ export OCTOP_DESKTOP_GEOMETRY=${GEOMETRY}
 EOF
 
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-  if [ -f "/etc/systemd/system/octop-desktop-xvnc.service" ]; then
+  if [ -f "/etc/systemd/system/xfriend-desktop-xvnc.service" ]; then
     sed -i "s/-geometry [0-9]\\+x[0-9]\\+/-geometry ${GEOMETRY}/" \
-      /etc/systemd/system/octop-desktop-xvnc.service
+      /etc/systemd/system/xfriend-desktop-xvnc.service
     systemctl daemon-reload
-    systemctl restart octop-desktop-xvnc octop-desktop-session octop-desktop-openbox
+    systemctl restart xfriend-desktop-xvnc xfriend-desktop-session xfriend-desktop-openbox
     sleep 3
     DISPLAY="${DISPLAY_NUM}" HOME=/root "${INSTALL_ROOT}/apply-wallpaper.sh" 2>/dev/null || true
     DISPLAY="${DISPLAY_NUM}" HOME=/root "${INSTALL_ROOT}/apply-icon-size.sh" 2>/dev/null || true

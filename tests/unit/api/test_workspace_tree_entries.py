@@ -7,12 +7,12 @@ from octop.api.common.workspace import reanchor_entry_path
 
 def test_root_listing_entry_keeps_basename_only() -> None:
     # Backend leaked a virtual key (root_dir above the workspace).
-    assert reanchor_entry_path(".octop/agents/MSPHTQ/agents/", parent=".") == "agents"
+    assert reanchor_entry_path(".xfriend/agents/MSPHTQ/agents/", parent=".") == "agents"
 
 
 def test_subdir_listing_entry_is_prefixed_with_requested_dir() -> None:
     assert (
-        reanchor_entry_path(".octop/agents/MSPHTQ/agents/general.md", parent="agents")
+        reanchor_entry_path(".xfriend/agents/MSPHTQ/agents/general.md", parent="agents")
         == "agents/general.md"
     )
 
@@ -31,9 +31,9 @@ def test_dedupe_tree_rows_drops_parent_and_duplicate_dir_marker() -> None:
 
     rows = dedupe_tree_rows(
         [
-            {"path": "/.octop", "is_dir": True},
-            {"path": "/.octop/", "is_dir": False, "size": 0},
-            {"path": "/.octop", "is_dir": True},
+            {"path": "/.xfriend", "is_dir": True},
+            {"path": "/.xfriend/", "is_dir": False, "size": 0},
+            {"path": "/.xfriend", "is_dir": True},
             {"path": "/", "is_dir": True},
             {"path": ".", "is_dir": True},
             {"path": "/SOUL.md", "is_dir": False, "size": 12},
@@ -41,7 +41,7 @@ def test_dedupe_tree_rows_drops_parent_and_duplicate_dir_marker() -> None:
         parent="/",
     )
     paths = [row["path"] for row in rows]
-    assert paths == ["/.octop", "/SOUL.md"]
+    assert paths == ["/.xfriend", "/SOUL.md"]
     assert rows[0]["is_dir"] is True
 
 

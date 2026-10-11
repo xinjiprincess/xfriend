@@ -31,6 +31,13 @@ class VoiceManager:
         self._settings = settings_repo
         self._repo = voice_provider_repo
 
+    @property
+    def settings(self) -> SettingsRepo:
+        return self._settings
+
+    def validate_provider_name(self, name: str, *, capability: str) -> None:
+        self._validate_provider_name(name, capability=capability)
+
     def get_active(self) -> dict[str, str]:
         stt = self._settings.get(self._KEY_STT) or self._DEFAULT
         tts = self._settings.get(self._KEY_TTS) or self._DEFAULT

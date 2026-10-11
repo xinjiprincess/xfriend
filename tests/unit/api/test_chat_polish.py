@@ -314,7 +314,7 @@ def test_ts_to_ms_converts_seconds() -> None:
 
 _PLACEHOLDER_TEXT = (
     "[image offloaded: sha=06bdd82d592a "
-    "path=C:\\Users\\me\\.octop\\agents\\DMQ318\\.media-cache/"
+    "path=C:\\Users\\me\\.xfriend\\agents\\DMQ318\\.media-cache/"
     "06bdd82d592a5cd6371ccdb2ed49d347a4ffb0fca4b80ea57e991f51522e178e.png "
     "size=173004B mime=image/png; use read_file to retrieve bytes]"
 )
@@ -481,7 +481,7 @@ def test_serialize_history_message_drops_zip_path_hint() -> None:
     """Zip/file path hints must not appear as user-authored history text."""
     hint = (
         "[附件] report.zip\n"
-        "工作区路径：/.octop/workspaces/JRK846/inbound/1_report.zip\n"
+        "工作区路径：/.xfriend/workspaces/JRK846/inbound/1_report.zip\n"
         "MIME：application/zip"
     )
     msg = HumanMessage(

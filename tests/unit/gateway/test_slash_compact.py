@@ -114,7 +114,7 @@ async def test_cmd_compact_shows_octop_relative_offload_path(ctx, dispatcher) ->
             ok=True,
             summarized_count=3,
             preserved_count=4,
-            file_path=f"/Users/wally/.octop/workspaces/X/.octop/conversation_history/{tid}.md",
+            file_path=f"/Users/wally/.xfriend/workspaces/X/.xfriend/conversation_history/{tid}.md",
             reason="ok",
         )
     )
@@ -124,7 +124,7 @@ async def test_cmd_compact_shows_octop_relative_offload_path(ctx, dispatcher) ->
     await cmd_compact(dispatcher, SlashCommand("compact", ""), ctx, sink)
 
     text = "\n".join(sink.lines)
-    assert ".octop/conversation_history/" in text
+    assert ".xfriend/conversation_history/" in text
     assert "/Users/wally" not in text
     assert "/home/" not in text
 
@@ -132,15 +132,15 @@ async def test_cmd_compact_shows_octop_relative_offload_path(ctx, dispatcher) ->
 def test_short_offload_path_hides_windows_macos_and_linux_hosts() -> None:
     tid = "thr_win"
     cases = (
-        rf"C:\Users\wally\.octop\workspaces\X\.octop\conversation_history\{tid}.md",
-        rf"\\?\C:\Users\wally\.octop\workspaces\X\.octop\conversation_history\{tid}.md",
-        f"/home/wally/.octop/workspaces/X/.octop/conversation_history/{tid}.md",
-        f"/Users/wally/.octop/workspaces/X/.octop/conversation_history/{tid}.md",
-        f"C:/Users/wally/.octop/conversation_history/{tid}.md",
+        rf"C:\Users\wally\.xfriend\workspaces\X\.xfriend\conversation_history\{tid}.md",
+        rf"\\?\C:\Users\wally\.xfriend\workspaces\X\.xfriend\conversation_history\{tid}.md",
+        f"/home/wally/.xfriend/workspaces/X/.xfriend/conversation_history/{tid}.md",
+        f"/Users/wally/.xfriend/workspaces/X/.xfriend/conversation_history/{tid}.md",
+        f"C:/Users/wally/.xfriend/conversation_history/{tid}.md",
     )
     for raw in cases:
         got = _short_offload_path(raw)
-        assert got == f".octop/conversation_history/{tid}.md"
+        assert got == f".xfriend/conversation_history/{tid}.md"
         assert "\\" not in got
         assert "C:" not in got
         assert "/Users/" not in got
@@ -168,7 +168,7 @@ async def test_cmd_compact_shows_windows_offload_path(ctx, dispatcher) -> None:
             ok=True,
             summarized_count=3,
             preserved_count=4,
-            file_path=rf"C:\Users\wally\.octop\workspaces\X\.octop\conversation_history\{tid}.md",
+            file_path=rf"C:\Users\wally\.xfriend\workspaces\X\.xfriend\conversation_history\{tid}.md",
             reason="ok",
         )
     )
@@ -178,7 +178,7 @@ async def test_cmd_compact_shows_windows_offload_path(ctx, dispatcher) -> None:
     await cmd_compact(dispatcher, SlashCommand("compact", ""), ctx, sink)
 
     text = "\n".join(sink.lines)
-    assert ".octop/conversation_history/" in text
+    assert ".xfriend/conversation_history/" in text
     assert "C:" not in text
     assert "Users\\wally" not in text
     assert "Users/wally" not in text
@@ -201,8 +201,8 @@ async def test_cmd_compact_prefers_display_path_over_host_file_path(ctx, dispatc
             ok=True,
             summarized_count=3,
             preserved_count=4,
-            file_path=rf"C:\Users\wally\.octop\workspaces\X\.octop\conversation_history\{tid}.md",
-            display_path=f".octop/conversation_history/{tid}.md",
+            file_path=rf"C:\Users\wally\.xfriend\workspaces\X\.xfriend\conversation_history\{tid}.md",
+            display_path=f".xfriend/conversation_history/{tid}.md",
             reason="ok",
         )
     )
@@ -212,7 +212,7 @@ async def test_cmd_compact_prefers_display_path_over_host_file_path(ctx, dispatc
     await cmd_compact(dispatcher, SlashCommand("compact", ""), ctx, sink)
 
     text = "\n".join(sink.lines)
-    assert f".octop/conversation_history/{tid}.md" in text
+    assert f".xfriend/conversation_history/{tid}.md" in text
     assert "C:" not in text
     assert "/Users/" not in text
     assert "/home/" not in text

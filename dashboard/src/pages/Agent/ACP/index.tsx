@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, App, Button, Empty, Form, Switch } from "antd";
+import { Alert, App, Button, Empty, Form, Switch, Tabs } from "antd";
+import DSHWorkspace from "./DSHWorkspace";
 
 import { useTranslation } from "react-i18next";
 import PageShell from "../../../layouts/PageShell";
@@ -374,7 +375,20 @@ export default function ACPPage() {
       subtitle={t("pageShell.acp.subtitle")}
       agentScoped
     >
-      <ACPPanel />
+      <Tabs
+        items={[
+          {
+            key: "runners",
+            label: t("engines.runners"),
+            children: <ACPPanel />,
+          },
+          {
+            key: "dsh",
+            label: t("engines.expert"),
+            children: <DSHWorkspace />,
+          },
+        ]}
+      />
     </PageShell>
   );
 }

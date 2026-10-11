@@ -88,6 +88,18 @@ export interface MarketPlugin {
 }
 
 export const pluginsApi = {
+  versions(id: string): Promise<{ id: string; version: string }[]> {
+    return request(`/plugins/${encodeURIComponent(id)}/versions`);
+  },
+  rollback(
+    id: string,
+    version_id: string,
+  ): Promise<{ id: string; version: string }> {
+    return request(`/plugins/${encodeURIComponent(id)}/rollback`, {
+      method: "POST",
+      body: JSON.stringify({ version_id }),
+    });
+  },
   list(): Promise<InstalledPlugin[]> {
     return request<InstalledPlugin[]>("/plugins");
   },

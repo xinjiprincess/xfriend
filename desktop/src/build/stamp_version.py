@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 _MANIFEST_IDENTITY = re.compile(
-    r'(<assemblyIdentity\b[^>]*\bname="com\.tencent\.octop"[^>]*\bversion=")[^"]+(")',
+    r'(<assemblyIdentity\b[^>]*\bname="com\.singu\.xfriend"[^>]*\bversion=")[^"]+(")',
     re.IGNORECASE,
 )
 
@@ -79,7 +79,9 @@ def stamp_info_json(src: Path, dest: Path, version: str) -> None:
     dotted = four_part_version(version)
     if dotted is not None:
         data["fixed"]["file_version"] = dotted
-    data["info"]["0000"]["ProductVersion"] = version
+    for strings in data["info"].values():
+        strings["FileVersion"] = version
+        strings["ProductVersion"] = version
     dest.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
 
 

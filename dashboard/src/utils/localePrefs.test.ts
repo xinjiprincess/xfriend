@@ -11,6 +11,7 @@ import {
 describe("localePrefs", () => {
   afterEach(() => {
     localStorage.clear();
+    window.history.replaceState(null, "", "/");
     vi.unstubAllGlobals();
   });
 
@@ -48,5 +49,19 @@ describe("localePrefs", () => {
     expect(speechLocaleFromUi("en")).toBe("en-US");
     expect(speechLocaleFromUi("en-US")).toBe("en-US");
     expect(speechLocaleFromUi(null)).toBe("zh-CN");
+  });
+
+  it("applies the desktop locale before rendering and removes only its parameter", () => {
+    storeUiLocale("en");
+    window.history.replaceState(
+      null,
+      "",
+      "/login?desktopLocale=zh&next=chat#anchor",
+    );
+    expect(resolveInitialLocale()).toBe("zh");
+    expect(readStoredUiLocale()).toBe("zh");
+    expect(window.location.search).toBe("?next=chat");
+    expect(window.location.hash).toBe("#anchor");
+    expect(resolveInitialLocale()).toBe("zh");
   });
 });

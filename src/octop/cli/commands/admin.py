@@ -1,4 +1,4 @@
-"""octop admin commands."""
+"""xfriend admin commands."""
 
 from __future__ import annotations
 
@@ -119,4 +119,4 @@ def rotate_jwt_secret() -> None:
     db = open_database(config, paths)
     run_migrations(db)
     SecretRepo(db).rotate("jwt", os.urandom(32))
-    click.echo("jwt secret rotated. Restart octop-server for new sessions.")
+    click.echo("jwt secret rotated. Restart Singu Xfriend server for new sessions.")

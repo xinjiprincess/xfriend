@@ -146,7 +146,7 @@ async def _iter_subprocess_lines(stream: asyncio.StreamReader) -> AsyncIterator[
 
 
 def octop_home() -> Path:
-    return Path(os.environ.get("OCTOP_HOME", Path.home() / ".octop"))
+    return Path(os.environ.get("OCTOP_HOME", Path.home() / ".xfriend"))
 
 
 def desktop_state_dir() -> Path:
@@ -158,11 +158,11 @@ def desktop_env_file() -> Path:
 
 
 def system_conf_dir() -> Path:
-    return Path("/etc/octop-desktop")
+    return Path("/etc/xfriend-desktop")
 
 
 def system_install_root() -> Path:
-    return Path("/opt/octop-desktop")
+    return Path("/opt/xfriend-desktop")
 
 
 def bundled_scripts_dir() -> Path:
@@ -439,9 +439,9 @@ def _systemd_available() -> bool:
 
 def _systemd_unit_files() -> tuple[Path, ...]:
     return (
-        Path("/etc/systemd/system/octop-desktop-xvnc.service"),
-        Path("/etc/systemd/system/octop-desktop-session.service"),
-        Path("/etc/systemd/system/octop-desktop-openbox.service"),
+        Path("/etc/systemd/system/xfriend-desktop-xvnc.service"),
+        Path("/etc/systemd/system/xfriend-desktop-session.service"),
+        Path("/etc/systemd/system/xfriend-desktop-openbox.service"),
     )
 
 
@@ -488,7 +488,7 @@ def _xvnc_service_active() -> bool:
     if shutil.which("systemctl") and Path("/run/systemd/system").is_dir():
         try:
             proc = subprocess.run(
-                ["systemctl", "is-active", "--quiet", "octop-desktop-xvnc"],
+                ["systemctl", "is-active", "--quiet", "xfriend-desktop-xvnc"],
                 capture_output=True,
                 timeout=3,
                 check=False,
@@ -852,23 +852,23 @@ def _sudo_shell_cmd(script: str) -> list[str] | None:
 _LINUX_UNINSTALL_SHELL = """
 set -euo pipefail
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-  systemctl disable octop-desktop-xvnc octop-desktop-openbox octop-desktop-session 2>/dev/null || true
-  systemctl stop octop-desktop-xvnc octop-desktop-openbox octop-desktop-session 2>/dev/null || true
-  systemctl reset-failed octop-desktop-xvnc octop-desktop-openbox octop-desktop-session 2>/dev/null || true
+  systemctl disable xfriend-desktop-xvnc xfriend-desktop-openbox xfriend-desktop-session 2>/dev/null || true
+  systemctl stop xfriend-desktop-xvnc xfriend-desktop-openbox xfriend-desktop-session 2>/dev/null || true
+  systemctl reset-failed xfriend-desktop-xvnc xfriend-desktop-openbox xfriend-desktop-session 2>/dev/null || true
   systemctl daemon-reload 2>/dev/null || true
 fi
-rm -f /etc/systemd/system/octop-desktop-xvnc.service \\
-      /etc/systemd/system/octop-desktop-openbox.service \\
-      /etc/systemd/system/octop-desktop-session.service
+rm -f /etc/systemd/system/xfriend-desktop-xvnc.service \\
+      /etc/systemd/system/xfriend-desktop-openbox.service \\
+      /etc/systemd/system/xfriend-desktop-session.service
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
   systemctl daemon-reload 2>/dev/null || true
 fi
-rm -rf /opt/octop-desktop /etc/octop-desktop
-rm -f /usr/share/backgrounds/octop-desktop-wallpaper.png \\
-      /usr/share/backgrounds/octop-desktop-wallpaper.svg 2>/dev/null || true
+rm -rf /opt/xfriend-desktop /etc/xfriend-desktop
+rm -f /usr/share/backgrounds/xfriend-desktop-wallpaper.png \\
+      /usr/share/backgrounds/xfriend-desktop-wallpaper.svg 2>/dev/null || true
 rm -f /usr/share/icons/hicolor/48x48/apps/octop-start-menu.png 2>/dev/null || true
 # Remove octop-managed Desktop launchers so they are not left as orphans after
-# uninstall (they point at the now-removed /opt/octop-desktop tree). Targeted by
+# uninstall (they point at the now-removed /opt/xfriend-desktop tree). Targeted by
 # filename to avoid deleting user-placed .desktop files on the Desktop.
 rm -f /root/Desktop/terminal.desktop \\
       /root/Desktop/files.desktop \\
@@ -883,11 +883,11 @@ rm -rf /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml \\
        /root/.cache/xfce4/xfdesktop 2>/dev/null || true
 pkill -9 -f 'import -display :99' 2>/dev/null || true
 pkill -9 -f 'Xvnc :99' 2>/dev/null || true
-pkill -9 -f '/opt/octop-desktop/' 2>/dev/null || true
+pkill -9 -f '/opt/xfriend-desktop/' 2>/dev/null || true
 pkill -x xfce4-panel 2>/dev/null || true
 pkill -f 'xfdesktop --display' 2>/dev/null || true
 rm -f /tmp/.X99-lock
-rm -rf /tmp/.X11-unix/X99 /tmp/octop-desktop-dbus-env /tmp/runtime-octop-desktop
+rm -rf /tmp/.X11-unix/X99 /tmp/xfriend-desktop-dbus-env /tmp/runtime-xfriend-desktop
 """
 
 

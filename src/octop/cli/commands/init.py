@@ -1,4 +1,4 @@
-"""`octop init` — bootstrap a fresh Octop install (DB + first admin)."""
+"""`xfriend init` — bootstrap a fresh Singu Xfriend install (DB + first admin)."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ import click
     "--force",
     is_flag=True,
     default=False,
-    help="Wipe existing ~/.octop contents before bootstrapping.",
+    help="Wipe existing ~/.xfriend contents before bootstrapping.",
 )
 @click.option(
     "--yes",
@@ -46,7 +46,7 @@ def init(
     force: bool,
     non_interactive: bool,
 ) -> None:
-    """Bootstrap an Octop server (~/.octop dir, DB migrations, first admin)."""
+    """Bootstrap an Singu Xfriend server (~/.xfriend dir, DB migrations, first admin)."""
     from octop.config import load_config
     from octop.infra.agents.plugins.manager import PluginManager
     from octop.infra.db.factory import open_database
@@ -60,9 +60,9 @@ def init(
     paths = PathLayout.from_env()
     home = paths.root
 
-    # Sidecar files (octop-login.txt, NAS share metadata) must not block first
+    # Sidecar files (xfriend-login.txt, NAS share metadata) must not block first
     # bootstrap. Only an existing control-plane DB counts as an install.
-    has_db = (home / "octop.db").is_file()
+    has_db = (home / "xfriend.db").is_file()
     if home.exists() and any(home.iterdir()):
         if has_db and not force:
             click.echo(
@@ -75,7 +75,7 @@ def init(
                 from octop.cli.support import prompts as _prompts
 
                 if not _prompts.confirm(
-                    f"Wipe {home}? This deletes ALL Octop state.", default=False
+                    f"Wipe {home}? This deletes ALL Singu Xfriend state.", default=False
                 ):
                     click.echo("aborted", err=True)
                     raise SystemExit(1)
@@ -121,6 +121,6 @@ def init(
     finally:
         db.close()
 
-    click.echo(f"\u2705 Octop bootstrapped at {home}")
+    click.echo(f"\u2705 Singu Xfriend bootstrapped at {home}")
     click.echo(f"   admin user: {username}")
-    click.echo("   next: `octop run` (optional: `octop agent use <id>` to pin default agent)")
+    click.echo("   next: `xfriend run` (optional: `xfriend agent use <id>` to pin default agent)")

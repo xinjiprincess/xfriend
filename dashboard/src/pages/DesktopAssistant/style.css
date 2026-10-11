@@ -1,0 +1,68 @@
+.xfriend-assistant {
+  height: 470px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #fff;
+  color: #17204b;
+  font:
+    14px "Microsoft YaHei",
+    sans-serif;
+}
+.xfriend-assistant select,
+.xfriend-assistant textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d9e1f7;
+  border-radius: 12px;
+  background: #f8faff;
+  color: inherit;
+  font: inherit;
+}
+.assistant-messages {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.assistant-messages article {
+  padding: 10px 12px;
+  margin: 8px 0;
+  border-radius: 14px;
+  background: #f1f4fc;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.assistant-messages .user {
+  background: #e8edff;
+  margin-left: 28px;
+}
+.assistant-hint {
+  color: #7c87a7;
+  font-size: 13px;
+}
+.assistant-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.xfriend-assistant button {
+  background: #405be6;
+  color: white;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 15px;
+  cursor: pointer;
+}
+.xfriend-assistant button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.xfriend-assistant [role="alert"] {
+  color: #b44659;
+  font-size: 12px;
+}
+.assistant-login {
+  justify-content: center;
+  text-align: center;
+}

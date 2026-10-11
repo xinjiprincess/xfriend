@@ -26,7 +26,7 @@ MOBILE_LAUNCH_APP = "mobile_launch_app"
 MOBILE_UI_DUMP = "mobile_ui_dump"
 MOBILE_HANDOFF = "mobile_handoff_to_user"
 
-_UI_DUMP_PATH = "/sdcard/octop_ui_dump.xml"
+_UI_DUMP_PATH = "/sdcard/xfriend_ui_dump.xml"
 _MAX_UI_DUMP_CHARS = 48_000
 
 

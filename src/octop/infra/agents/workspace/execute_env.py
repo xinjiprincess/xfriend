@@ -1,6 +1,6 @@
 """Inject platform execute defaults into harness backend specs.
 
-Global admin env (``~/.octop/env``) and workspace ``.env`` are merged at
+Global admin env (``~/.xfriend/env``) and workspace ``.env`` are merged at
 **execute** time inside harness (``inherit_env`` / ``environment_file`` /
 ``BackendWorkspace`` reader) — not snapshotted here.
 
@@ -45,18 +45,18 @@ def _agent_facing_auth_and_skills(
             root_dir=local_backend_root_dir(cfg),
             virtual_mode=True,
         )
-    scoped = uses_scoped_workspace_default(cfg) or facing.startswith("/.octop/")
+    scoped = uses_scoped_workspace_default(cfg) or facing.startswith("/.xfriend/")
     if not scoped:
         return str(auth_host), str(skills_host)
 
     prefix = system_files_path_from_config(cfg)
     # Match agent_auth_dir legacy preference when tokens already live at root.
-    if auth_host.name == ".octop-auth":
-        auth_env = join_agent_facing(facing, ".octop-auth")
+    if auth_host.name == ".xfriend-auth":
+        auth_env = join_agent_facing(facing, ".xfriend-auth")
     elif prefix:
         auth_env = join_agent_facing(facing, prefix, "auth")
     else:
-        auth_env = join_agent_facing(facing, ".octop-auth")
+        auth_env = join_agent_facing(facing, ".xfriend-auth")
 
     if prefix:
         skills_env = join_agent_facing(facing, prefix, "skills")

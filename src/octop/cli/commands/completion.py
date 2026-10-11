@@ -1,4 +1,4 @@
-"""octop completion: emit / install shell completion script."""
+"""xfriend completion: emit / install shell completion script."""
 
 from __future__ import annotations
 
@@ -53,6 +53,6 @@ def install(shell: str | None, rc_file: str | None) -> None:
         click.echo(f"already installed in {rc_path}")
         return
     with rc_path.open("a", encoding="utf-8") as f:
-        f.write("\n# octop shell completion\n")
+        f.write("\n# xfriend shell completion\n")
         f.write(snippet)
     click.echo(f"installed to {rc_path} — restart your shell to activate")

@@ -108,7 +108,7 @@ func TestEnsurePortableUpgradesBundledVersionAfterDatabaseBackup(t *testing.T) {
 	if err := unzipGreen(oldZip, root); err != nil {
 		t.Fatal(err)
 	}
-	database := filepath.Join(home, "octop.db")
+	database := filepath.Join(home, "xfriend.db")
 	if err := os.WriteFile(database, []byte("database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestEnsurePortableUpgradesBundledVersionAfterDatabaseBackup(t *testing.T) {
 	if got := portableVersion(root); got != "0.9.32" {
 		t.Fatalf("portable version = %q, want 0.9.32", got)
 	}
-	backups, err := filepath.Glob(filepath.Join(home, "backups", "octop-desktop-pre-upgrade-*.db"))
+	backups, err := filepath.Glob(filepath.Join(home, "backups", "xfriend-desktop-pre-upgrade-*.db"))
 	if err != nil || len(backups) != 1 {
 		t.Fatalf("upgrade backup = %v, err = %v", backups, err)
 	}
@@ -148,7 +148,7 @@ func TestEnsurePortableKeepsRuntimeWhenDatabaseBackupFails(t *testing.T) {
 	if err := unzipGreen(oldZip, root); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "octop.db"), []byte("database"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "xfriend.db"), []byte("database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	newZip := filepath.Join(t.TempDir(), "new.zip")
@@ -188,7 +188,7 @@ func TestEnsurePortableKeepsNewerExistingRuntime(t *testing.T) {
 			preserved := map[string]string{
 				filepath.Join(root, "VERSION.txt"): "octop_version=" + test.recorded + "\n",
 				filepath.Join(root, "keep.txt"):    "keep",
-				filepath.Join(home, "octop.db"):    "database",
+				filepath.Join(home, "xfriend.db"):  "database",
 			}
 			for path, content := range preserved {
 				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -262,7 +262,7 @@ func TestPortableVersionPrefersNewerMetadataOverVersionTxt(t *testing.T) {
 	preserved := map[string]string{
 		filepath.Join(root, "VERSION.txt"): "octop_version=1.0.2b4\n",
 		filepath.Join(root, "keep.txt"):    "keep",
-		filepath.Join(home, "octop.db"):    "database",
+		filepath.Join(home, "xfriend.db"):  "database",
 	}
 	for path, content := range preserved {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -428,7 +428,7 @@ func TestEnsurePortablePrereleaseUpgrade(t *testing.T) {
 				t.Fatal(err)
 			}
 			marker := filepath.Join(root, "keep.txt")
-			database := filepath.Join(home, "octop.db")
+			database := filepath.Join(home, "xfriend.db")
 			for _, path := range []string{marker, database} {
 				if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 					t.Fatal(err)
@@ -532,7 +532,7 @@ func TestFormatHealthWaitErrorIsActionableChinese(t *testing.T) {
 	}
 	msg := err.Error()
 	for _, needle := range []string{
-		"Octop 服务未在",
+		"Singu Xfriend 服务未在",
 		"1 分钟",
 		"http://127.0.0.1:8088",
 		"请确认",
@@ -552,10 +552,10 @@ func TestFormatHealthWaitErrorIsActionableChinese(t *testing.T) {
 func TestFormatHealthWaitErrorUsesEnglishWhenLocaleIsEn(t *testing.T) {
 	msg := formatHealthWaitError(LocaleEN, "http://127.0.0.1:8088", time.Minute, errors.New("connection refused"), 0).Error()
 	for _, needle := range []string{
-		"Octop did not become ready within",
+		"Singu Xfriend did not become ready within",
 		"1 minute",
 		"http://127.0.0.1:8088",
-		"make sure Octop is running",
+		"make sure Singu Xfriend is running",
 	} {
 		if !strings.Contains(msg, needle) {
 			t.Fatalf("English health error missing %q: %s", needle, msg)
@@ -579,11 +579,64 @@ func TestFormatHealthWaitErrorUsesServiceNotReadyHintOn5xx(t *testing.T) {
 
 func TestWaitHealthSucceedsOnOK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true,"application":"xfriend","protocol":1,"ready":true}`))
 	}))
 	t.Cleanup(srv.Close)
 	if err := waitHealth(LocaleZH, srv.URL, time.Second); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWaitHealthRejectsWrongServiceAndNotReady(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"not_found", 404, `{"ok":true,"application":"xfriend","protocol":1,"ready":true}`},
+		{"other_service", 200, `{"ok":true,"application":"other","protocol":1,"ready":true}`},
+		{"not_ready", 200, `{"ok":true,"application":"xfriend","protocol":1,"ready":false}`},
+		{"invalid_json", 200, `<html>login</html>`},
+		{"old_protocol", 200, `{"ok":true,"application":"xfriend","protocol":2,"ready":true}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer srv.Close()
+			if err := waitHealth(LocaleZH, srv.URL, 30*time.Millisecond); err == nil {
+				t.Fatal("unexpected readiness")
+			}
+		})
+	}
+}
+
+func TestWaitHealthReportsExitedServiceWithoutWaitingForTimeout(t *testing.T) {
+	done := make(chan error, 1)
+	done <- errors.New("exit status 1")
+	started := time.Now()
+	err := waitHealthForProcess(LocaleZH, "http://127.0.0.1:1", time.Minute, done, "startup.log")
+	if err == nil || !strings.Contains(err.Error(), "本地服务已退出") || !strings.Contains(err.Error(), "startup.log") {
+		t.Fatalf("expected exit reason and log path, got %v", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatal("exited service should not wait for the startup timeout")
+	}
+}
+
+func TestWaitHealthBoundsUnresponsiveRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	started := time.Now()
+	err := waitHealthForProcess(LocaleZH, srv.URL, 50*time.Millisecond, nil, "startup.log")
+	if err == nil || !strings.Contains(err.Error(), "startup.log") {
+		t.Fatalf("expected timeout and log path, got %v", err)
+	}
+	if time.Since(started) > 2*time.Second {
+		t.Fatal("unresponsive HTTP request exceeded the startup deadline")
 	}
 }
 
@@ -595,7 +648,7 @@ func TestWaitHealthTimesOutWithFriendlyMessage(t *testing.T) {
 	if strings.Contains(err.Error(), "did not become healthy") {
 		t.Fatalf("should not use the old English diagnostic: %s", err)
 	}
-	if !strings.Contains(err.Error(), "Octop did not become ready within") {
+	if !strings.Contains(err.Error(), "Singu Xfriend did not become ready within") {
 		t.Fatalf("timeout should follow the desktop locale: %s", err)
 	}
 }

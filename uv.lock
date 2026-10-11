@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -2466,7 +2466,7 @@ wheels = [
 
 [[package]]
 name = "octop"
-version = "1.0.2b6"
+version = "1.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "acme" },
@@ -2482,12 +2482,14 @@ dependencies = [
     { name = "langgraph-checkpoint-postgres" },
     { name = "lark-oapi" },
     { name = "ldap3" },
+    { name = "markdown-it-py" },
     { name = "mcp" },
     { name = "octop-browser" },
     { name = "octop-gateway" },
     { name = "octop-harness", extra = ["all"] },
     { name = "octop-memory" },
     { name = "openpyxl" },
+    { name = "packaging" },
     { name = "pillow" },
     { name = "playwright" },
     { name = "psycopg", extra = ["binary"] },
@@ -2569,6 +2571,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0" },
     { name = "lark-oapi", specifier = ">=1.7.3" },
     { name = "ldap3", specifier = ">=2.9.1" },
+    { name = "markdown-it-py", specifier = ">=3.0" },
     { name = "mcp", specifier = ">=1.9,<2" },
     { name = "mss", marker = "extra == 'desktop'", specifier = ">=9.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
@@ -2578,6 +2581,7 @@ requires-dist = [
     { name = "octop-memory", specifier = ">=1.0.0" },
     { name = "onnxruntime", marker = "extra == 'knowledge-ocr'", specifier = ">=1.17" },
     { name = "openpyxl", specifier = ">=3.1" },
+    { name = "packaging", specifier = ">=24.0" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "playwright", specifier = ">=1.40" },
     { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.40" },

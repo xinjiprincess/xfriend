@@ -254,7 +254,7 @@ async def cmd_status(d: SlashDispatcher, cmd: SlashCommand, ctx: SlashCtx, sink:
     )
 
     rows: list[tuple[str, str]] = [
-        ("octop", ctx.octop_version or tr("unknown", lang)),
+        ("Singu Xfriend", ctx.octop_version or tr("unknown", lang)),
         ("uptime", server_uptime_label(ctx.server_started_at)),
         ("agent_id", ctx.agent_id),
         ("agent", f"{agent_name or ctx.agent_id[-6:]} ({agent_state})"),

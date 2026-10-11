@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# Check Octop virtual desktop readiness.
+# Check Singu Xfriend virtual desktop readiness.
 # Output (last line JSON):
 #   {"ready": true, "vnc_running": true, "display": ":99", ...}
 
 if [ -z "${BASH_VERSION:-}" ]; then exec /bin/bash "$0" "$@"; fi
 set -uo pipefail
 
-CONF_DIR="/etc/octop-desktop"
+CONF_DIR="/etc/xfriend-desktop"
 VERSION_FILE="${CONF_DIR}/version"
 DISPLAY_NUM=":99"
 
@@ -24,13 +24,13 @@ mark() {
     [ "$2" = ok ] || missing+=("\"$1\"")
 }
 
-if [ -d /opt/octop-desktop ] || [ -d "$CONF_DIR" ]; then
+if [ -d /opt/xfriend-desktop ] || [ -d "$CONF_DIR" ]; then
     mark packages ok
 else
     mark packages missing
 fi
 
-if systemctl is-active --quiet octop-desktop-xvnc 2>/dev/null; then
+if systemctl is-active --quiet xfriend-desktop-xvnc 2>/dev/null; then
     vnc_running=true
     mark xvnc ok
 elif pgrep -f "Xvnc.*:99" >/dev/null 2>&1 || pgrep -f "Xtigervnc.*:99" >/dev/null 2>&1; then
@@ -40,9 +40,9 @@ else
     mark xvnc not_running
 fi
 
-if systemctl is-active --quiet octop-desktop-openbox 2>/dev/null; then
+if systemctl is-active --quiet xfriend-desktop-openbox 2>/dev/null; then
     mark openbox ok
-elif pgrep -f "openbox --config-file /opt/octop-desktop/openbox.xml" >/dev/null 2>&1; then
+elif pgrep -f "openbox --config-file /opt/xfriend-desktop/openbox.xml" >/dev/null 2>&1; then
     mark openbox ok
 else
     mark openbox not_running

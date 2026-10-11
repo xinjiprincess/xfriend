@@ -1,4 +1,4 @@
-"""`octop run` — start the FastAPI app in the foreground."""
+"""`xfriend run` — start the FastAPI app in the foreground."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import click
 from octop.cli.support.errors import fail_octop
 from octop.config import env_bind_overrides
 from octop.infra.errors import OctopError, corrupt_config_error
+from octop.infra.setup.brand_migration import migrate_home
 from octop.infra.utils.json_file import (
     JsonFileCorruptError,
     read_json_object,
@@ -111,7 +112,7 @@ def _save_configfile_overrides(host: str | None, port: int | None) -> None:
 
     A corrupt config.json is a hard error, never an empty base: merging into
     ``{}`` and writing back destroys every other setting (issue #730 — one
-    trailing comma plus ``octop run --port`` wiped the ``database`` section and
+    trailing comma plus ``xfriend run --port`` wiped the ``database`` section and
     silently flipped a PostgreSQL instance back to greenfield SQLite).
     """
     paths = PathLayout.from_env()
@@ -167,16 +168,17 @@ def run(
     ssl_certfile: str | None,
     ssl_keyfile: str | None,
 ) -> None:
-    """Run octop-server in the foreground.
+    """Run Singu Xfriend server in the foreground.
 
     Host and port are resolved with the following precedence: explicit CLI
-    flags > ``OCTOP_BIND_HOST``/``OCTOP_PORT`` env > ``~/.octop/config.json``
+    flags > ``OCTOP_BIND_HOST``/``OCTOP_PORT`` env > ``~/.xfriend/config.json``
     > launch defaults. When ``--host`` or ``--port`` is passed on the CLI,
     that override is persisted to ``config.json`` immediately before uvicorn
     starts.
     """
     cli_host, cli_port = host, port
     try:
+        migrate_home(PathLayout.from_env())
         host, port = resolve_bind(host, port)
         if cli_host is not None or cli_port is not None:
             _save_configfile_overrides(cli_host, cli_port)

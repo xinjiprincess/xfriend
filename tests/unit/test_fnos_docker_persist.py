@@ -65,7 +65,7 @@ def test_fnos_docker_compose_uses_trim_data_share_paths() -> None:
         for line in text.splitlines()
         if line.lstrip().startswith("- ") and ":/data/.octop" in line
     ]
-    assert volume_lines, "compose must bind a host path onto /data/.octop"
+    assert volume_lines, "compose must bind a host path onto /data/.xfriend"
     assert all(LEGACY_DIR not in line for line in volume_lines)
 
 
@@ -107,7 +107,7 @@ def test_octop_prepare_docker_persist_migrates_legacy_db(tmp_path: Path) -> None
     dest.mkdir()
     legacy = tmp_path / "legacy"
     legacy.mkdir()
-    (legacy / "octop.db").write_text("db", encoding="utf-8")
+    (legacy / "xfriend.db").write_text("db", encoding="utf-8")
     (legacy / "config.json").write_text("{}", encoding="utf-8")
     env_file = tmp_path / "docker.env"
     pkgvar = tmp_path / "pkgvar"
@@ -121,8 +121,8 @@ octop_prepare_docker_persist "{env_file}"
 """
     out = subprocess.check_output(["bash", "-c", script], text=True)
     assert out == str(dest)
-    assert (dest / ".octop" / "octop.db").read_text(encoding="utf-8") == "db"
-    assert (dest / ".octop" / "config.json").read_text(encoding="utf-8") == "{}"
+    assert (dest / ".xfriend" / "xfriend.db").read_text(encoding="utf-8") == "db"
+    assert (dest / ".xfriend" / "config.json").read_text(encoding="utf-8") == "{}"
     env_text = env_file.read_text(encoding="utf-8")
     assert f"TRIM_DATA_SHARE_PATHS={dest}" in env_text
     assert f"OCTOP_DATA={dest}" in env_text
@@ -134,12 +134,12 @@ def test_octop_prepare_docker_persist_does_not_overwrite_existing_db(
     tmp_path: Path,
 ) -> None:
     dest = tmp_path / "share"
-    dest_home = dest / ".octop"
+    dest_home = dest / ".xfriend"
     dest_home.mkdir(parents=True)
-    (dest_home / "octop.db").write_text("keep", encoding="utf-8")
+    (dest_home / "xfriend.db").write_text("keep", encoding="utf-8")
     legacy = tmp_path / "legacy"
     legacy.mkdir()
-    (legacy / "octop.db").write_text("old", encoding="utf-8")
+    (legacy / "xfriend.db").write_text("old", encoding="utf-8")
     env_file = tmp_path / "docker.env"
     script = f"""
 set -euo pipefail
@@ -150,7 +150,7 @@ export TRIM_PKGVAR="{tmp_path / "pkgvar"}"
 octop_prepare_docker_persist "{env_file}" >/dev/null
 """
     subprocess.check_call(["bash", "-c", script])
-    assert (dest_home / "octop.db").read_text(encoding="utf-8") == "keep"
+    assert (dest_home / "xfriend.db").read_text(encoding="utf-8") == "keep"
 
 
 @posix_only
@@ -177,11 +177,11 @@ octop_sync_fnos_compose "{compose}" "{data_dir}" "{env_file}"
 """
     subprocess.check_call(["bash", "-c", script])
     text = compose.read_text(encoding="utf-8")
-    assert f"{data_dir}/.octop:/data/.octop" in text
+    assert f"{data_dir}/.xfriend:/data/.xfriend" in text
     assert "env_file:" not in text
     assert f"{data_dir}/fnos-boot.sh:/usr/local/bin/fnos-boot.sh:ro" in text
     assert f"{data_dir}/fnos-admin.env:/data/fnos-admin.env:ro" in text
-    assert (data_dir / ".octop").is_dir()
+    assert (data_dir / ".xfriend").is_dir()
 
 
 @posix_only
@@ -215,7 +215,7 @@ source "{COMMON_SH}"
 octop_write_login_file "{tmp_path}" alice WizardPass1 8088
 """
     subprocess.check_call(["bash", "-c", script])
-    text = (tmp_path / "octop-login.txt").read_text(encoding="utf-8")
+    text = (tmp_path / "xfriend-login.txt").read_text(encoding="utf-8")
     assert "管理员账号：alice" in text
     assert "管理员密码：WizardPass1" in text
     assert "http://<飞牛IP>:8088" in text
@@ -537,7 +537,7 @@ source "{COMMON_SH}"
 octop_mark_fnos_passwd_pending "{share}"
 """
     subprocess.check_call(["bash", "-c", script])
-    assert (share / ".octop" / ".fnos-apply-wizard-password").is_file()
+    assert (share / ".xfriend" / ".fnos-apply-wizard-password").is_file()
 
 
 @posix_only

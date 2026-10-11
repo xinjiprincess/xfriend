@@ -34,7 +34,7 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="POSIX service manage
 
 
 def _runtime(tmp_path: Path) -> ServiceRuntime:
-    octop_bin = tmp_path / "bin" / "octop"
+    octop_bin = tmp_path / "bin" / "xfriend"
     octop_bin.parent.mkdir(parents=True)
     octop_bin.write_text("#!/bin/sh\n", encoding="utf-8")
     return ServiceRuntime(
@@ -166,7 +166,7 @@ def test_install_service_systemd_user_uses_systemctl_user(
 
     assert install_service(runtime) is True
     assert calls[0] == ["daemon-reload"]
-    assert calls[1] == ["enable", "octop"]
+    assert calls[1] == ["enable", "xfriend"]
 
 
 def test_install_service_does_not_rewrite_custom_unit_without_force(
@@ -229,7 +229,7 @@ def test_ensure_nofile_dropin_is_idempotent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     runtime = replace(_runtime(tmp_path), scope="user")
-    dropin = tmp_path / "octop.service.d" / service_mod.NOFILE_DROPIN_NAME
+    dropin = tmp_path / "xfriend.service.d" / service_mod.NOFILE_DROPIN_NAME
     monkeypatch.setattr(service_mod, "nofile_dropin_path", lambda _rt: dropin)
     monkeypatch.setattr(service_mod, "_nofile_limit_for", lambda _rt: 65535)
 
@@ -259,11 +259,11 @@ def test_start_service_restarts_systemd_when_apply_unit(
     monkeypatch.setattr(service_mod, "_wait_for_startup", lambda: None)
 
     service_mod.start_service(runtime, apply_unit=True)
-    assert calls == [["restart", "octop"]]
+    assert calls == [["restart", "xfriend"]]
 
     calls.clear()
     service_mod.start_service(runtime, apply_unit=False)
-    assert calls == [["start", "octop"]]
+    assert calls == [["start", "xfriend"]]
 
 
 def test_restart_service_refreshes_unit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -293,8 +293,8 @@ def test_restart_service_refreshes_unit(monkeypatch: pytest.MonkeyPatch, tmp_pat
     restart_service(runtime)
     assert installs == [False]
     assert ["daemon-reload"] in calls
-    assert ["restart", "octop"] in calls
-    assert calls.index(["restart", "octop"]) > calls.index(["daemon-reload"])
+    assert ["restart", "xfriend"] in calls
+    assert calls.index(["restart", "xfriend"]) > calls.index(["daemon-reload"])
 
 
 def test_restart_service_still_restarts_when_install_fails(
@@ -323,14 +323,14 @@ def test_restart_service_still_restarts_when_install_fails(
     monkeypatch.setattr(service_mod, "_wait_for_startup", lambda: None)
 
     restart_service(runtime)
-    assert ["restart", "octop"] in calls
+    assert ["restart", "xfriend"] in calls
 
 
 def test_ensure_nofile_dropin_caps_user_hard_limit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     runtime = replace(_runtime(tmp_path), scope="user")
-    dropin = tmp_path / "octop.service.d" / service_mod.NOFILE_DROPIN_NAME
+    dropin = tmp_path / "xfriend.service.d" / service_mod.NOFILE_DROPIN_NAME
     monkeypatch.setattr(service_mod, "nofile_dropin_path", lambda _rt: dropin)
     monkeypatch.setattr(service_mod, "_user_nofile_cap", lambda: 4096)
 
@@ -695,16 +695,18 @@ def test_resolve_run_as_user_root_always_returns_root(monkeypatch: pytest.Monkey
 def test_resolve_service_home_uses_passwd_not_effective_uid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """sudo install as root must still target the invoking user's ~/.octop."""
+    """sudo install as root must still target the invoking user's ~/.xfriend."""
     monkeypatch.delenv("OCTOP_HOME", raising=False)
     monkeypatch.setattr(service_mod, "is_root", lambda: True)
     monkeypatch.setenv("SUDO_USER", "ubuntu")
-    assert resolve_service_home(run_as_user="ubuntu") == Path("/home/ubuntu") / ".octop"
+    assert resolve_service_home(run_as_user="ubuntu") == Path("/home/ubuntu") / ".xfriend"
 
 
 def test_resolve_service_home_root_session(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OCTOP_HOME", raising=False)
-    assert resolve_service_home(run_as_user="root") == Path(pwd.getpwnam("root").pw_dir) / ".octop"
+    assert (
+        resolve_service_home(run_as_user="root") == Path(pwd.getpwnam("root").pw_dir) / ".xfriend"
+    )
 
 
 def test_build_runtime_root_always_system_scope(
@@ -714,7 +716,7 @@ def test_build_runtime_root_always_system_scope(
     # not a user-scope unit for the original invoker.
     root_home = tmp_path / "root-home"
     root_home.mkdir()
-    octop_bin = root_home / ".octop" / "bin" / "octop"
+    octop_bin = root_home / ".xfriend" / "bin" / "xfriend"
     octop_bin.parent.mkdir(parents=True)
     octop_bin.write_text("#!/bin/sh\n", encoding="utf-8")
 
@@ -747,7 +749,7 @@ def test_systemctl_user_wraps_xdg_runtime_dir_for_root_install(
         "getpwnam",
         lambda _name: type("Pw", (), {"pw_uid": 1000, "pw_dir": "/home/ubuntu"})(),
     )
-    cmd = service_mod._systemctl("user", "enable", "octop", run_as_user="ubuntu")
+    cmd = service_mod._systemctl("user", "enable", "xfriend", run_as_user="ubuntu")
     assert cmd == [
         "sudo",
         "-u",
@@ -757,7 +759,7 @@ def test_systemctl_user_wraps_xdg_runtime_dir_for_root_install(
         "systemctl",
         "--user",
         "enable",
-        "octop",
+        "xfriend",
     ]
 
 
@@ -771,7 +773,7 @@ def test_auto_scope_root_always_system(
 
 
 def test_persist_bind_options_merges_config(tmp_path: Path) -> None:
-    home = tmp_path / "octop"
+    home = tmp_path / "xfriend"
     home.mkdir()
     (home / "config.json").write_text('{"log_level": "debug"}', encoding="utf-8")
     service_mod.persist_bind_options(home, host="0.0.0.0", port=443)
@@ -787,7 +789,7 @@ def test_build_runtime_picks_user_scope_for_non_root(
     monkeypatch.setattr(service_mod, "is_root", lambda: False)
     monkeypatch.setenv("OCTOP_SERVICE_SCOPE", "auto")
     (tmp_path / "bin").mkdir()
-    (tmp_path / "bin" / "octop").write_text("#!/bin/sh\n", encoding="utf-8")
+    (tmp_path / "bin" / "xfriend").write_text("#!/bin/sh\n", encoding="utf-8")
     monkeypatch.setattr(service_mod, "resolve_bind_options", lambda home=None: ("127.0.0.1", 8088))
 
     runtime = service_mod.build_runtime(home=tmp_path, mode="launchd")
@@ -841,7 +843,7 @@ def test_write_unit_sudo_path_creates_parent_dir_first(
 
 def test_needs_sudo_false_when_an_ancestor_is_writable(tmp_path: Path) -> None:
     """Missing drop-in directory under a writable home must not force sudo."""
-    nested = tmp_path / "systemd" / "user" / "octop.service.d" / "10-nofile.conf"
+    nested = tmp_path / "systemd" / "user" / "xfriend.service.d" / "10-nofile.conf"
     assert service_mod._needs_sudo(nested) is False
 
 
@@ -867,7 +869,7 @@ class _FakeOs:
 
 def test_persist_bind_options_refuses_corrupt_config(tmp_path: Path) -> None:
     """issue #730: must not merge into an empty dict and wipe every other key."""
-    home = tmp_path / "octop"
+    home = tmp_path / "xfriend"
     home.mkdir()
     corrupt = '{"bind_host": "0.0.0.0", "database": {"driver": "postgresql"},}'
     (home / "config.json").write_text(corrupt, encoding="utf-8")

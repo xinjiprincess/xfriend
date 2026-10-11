@@ -31,7 +31,7 @@ def test_normalize_composer_relpath_accepts_editable_paths(name: str, expected: 
 
 @pytest.mark.parametrize(
     "name",
-    [".octop/secret", "../AGENTS.md", "skills/../x", "etc/passwd", ""],
+    [".xfriend/secret", "../AGENTS.md", "skills/../x", "etc/passwd", ""],
 )
 def test_normalize_composer_relpath_rejects_unsafe_paths(name: str) -> None:
     with pytest.raises(OctopError) as exc:

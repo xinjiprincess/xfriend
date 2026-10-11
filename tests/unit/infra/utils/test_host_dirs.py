@@ -159,7 +159,7 @@ def test_assert_safe_host_path_allows_root_when_home(
         pytest.skip("/root not available")
     monkeypatch.setattr("octop.infra.utils.host_dirs.Path.home", lambda: root_home)
     assert assert_safe_host_path("/root") == root_home.resolve()
-    nested = root_home / ".octop"
+    nested = root_home / ".xfriend"
     # Nested path under home is allowed even if the parent is denylisted for others.
     assert assert_safe_host_path(str(nested)) == nested.resolve()
 

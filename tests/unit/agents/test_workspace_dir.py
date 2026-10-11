@@ -37,33 +37,33 @@ def test_scoped_default_persists_agent_facing_path(tmp_path: Path) -> None:
     paths = PathLayout(tmp_path / "octop-home")
     cfg = _scoped_cfg(root)
     host = seed_workspace_dir_on_create(cfg, paths=paths, agent_id="J1BT2X")
-    assert cfg["workspace_dir"] == "/.octop/workspaces/J1BT2X"
+    assert cfg["workspace_dir"] == "/.xfriend/workspaces/J1BT2X"
     # On-disk tree still lands under the jail root_dir.
-    assert host == (root / ".octop" / "workspaces" / "J1BT2X").resolve()
+    assert host == (root / ".xfriend" / "workspaces" / "J1BT2X").resolve()
     assert host.is_dir()
     # Host ops map; harness should keep the persisted string as-is.
     assert resolve_workspace_host_path(cfg["workspace_dir"], cfg) == host
     assert Path(cfg["workspace_dir"]) != host
-    assert agent_facing_workspace_dir_from_config(cfg) == "/.octop/workspaces/J1BT2X"
+    assert agent_facing_workspace_dir_from_config(cfg) == "/.xfriend/workspaces/J1BT2X"
     assert (
         agent_facing_workspace_root(
             host,
             root_dir=root,
             virtual_mode=True,
         )
-        == "/.octop/workspaces/J1BT2X"
+        == "/.xfriend/workspaces/J1BT2X"
     )
-    assert join_agent_facing("/.octop/workspaces/J1BT2X", "inbound/a.zip") == (
-        "/.octop/workspaces/J1BT2X/inbound/a.zip"
+    assert join_agent_facing("/.xfriend/workspaces/J1BT2X", "inbound/a.zip") == (
+        "/.xfriend/workspaces/J1BT2X/inbound/a.zip"
     )
 
 
 def test_host_ops_map_octop_workspaces_under_root(tmp_path: Path) -> None:
     root = tmp_path / "home"
-    expected = root / ".octop" / "workspaces" / "J1BT2X"
+    expected = root / ".xfriend" / "workspaces" / "J1BT2X"
     expected.mkdir(parents=True)
     cfg = _scoped_cfg(root)
-    assert resolve_workspace_host_path("/.octop/workspaces/J1BT2X", cfg) == expected.resolve()
+    assert resolve_workspace_host_path("/.xfriend/workspaces/J1BT2X", cfg) == expected.resolve()
 
 
 def test_user_assigned_workspace_wins(tmp_path: Path) -> None:
@@ -78,19 +78,19 @@ def test_user_assigned_workspace_wins(tmp_path: Path) -> None:
 
 
 def test_host_rooted_default_uses_octop_home(tmp_path: Path) -> None:
-    paths = PathLayout(tmp_path / ".octop")
+    paths = PathLayout(tmp_path / ".xfriend")
     cfg = {
         "backend": {"type": "local_shell", "root_dir": "/", "virtual_mode": True},
     }
     host = seed_workspace_dir_on_create(cfg, paths=paths, agent_id="A1")
     assert cfg["workspace_dir"] == str(host)
-    assert host == (tmp_path / ".octop" / "agents" / "A1").resolve()
+    assert host == (tmp_path / ".xfriend" / "agents" / "A1").resolve()
 
 
 @pytest.mark.parametrize("root_dir", ["C:/", "C:\\", "D:", "d:/"])
 def test_windows_drive_root_is_host_sentinel(tmp_path: Path, root_dir: str) -> None:
-    """Drive roots must use OCTOP_HOME agents/, not {drive}/.octop/workspaces/."""
-    paths = PathLayout(tmp_path / ".octop")
+    """Drive roots must use OCTOP_HOME agents/, not {drive}/.xfriend/workspaces/."""
+    paths = PathLayout(tmp_path / ".xfriend")
     cfg = {
         "backend": {
             "type": "local_shell",
@@ -100,8 +100,8 @@ def test_windows_drive_root_is_host_sentinel(tmp_path: Path, root_dir: str) -> N
     }
     host = seed_workspace_dir_on_create(cfg, paths=paths, agent_id="WIN1")
     assert cfg["workspace_dir"] == str(host)
-    assert host == (tmp_path / ".octop" / "agents" / "WIN1").resolve()
-    assert ".octop/workspaces" not in cfg["workspace_dir"].replace("\\", "/")
+    assert host == (tmp_path / ".xfriend" / "agents" / "WIN1").resolve()
+    assert ".xfriend/workspaces" not in cfg["workspace_dir"].replace("\\", "/")
 
 
 def test_harness_workspace_keeps_absolute_persisted_value(tmp_path: Path) -> None:
@@ -111,11 +111,11 @@ def test_harness_workspace_keeps_absolute_persisted_value(tmp_path: Path) -> Non
 
 
 def test_harness_workspace_maps_non_absolute_persisted_value(tmp_path: Path) -> None:
-    """Windows cannot express ``/.octop/workspaces/<id>`` as absolute — host-map it."""
+    """Windows cannot express ``/.xfriend/workspaces/<id>`` as absolute — host-map it."""
     root = tmp_path / "home"
-    cfg = _scoped_cfg(root, workspace_dir=".octop/workspaces/W1N")
+    cfg = _scoped_cfg(root, workspace_dir=".xfriend/workspaces/W1N")
     assert harness_workspace_path(cfg["workspace_dir"], cfg) == (
-        root / ".octop" / "workspaces" / "W1N"
+        root / ".xfriend" / "workspaces" / "W1N"
     )
 
 
@@ -171,7 +171,7 @@ def test_neutralize_unwritable_local_root(tmp_path: Path) -> None:
 
     blocker = tmp_path / "not-a-dir"
     blocker.write_text("x", encoding="utf-8")
-    cfg = _scoped_cfg(blocker, workspace_dir="/.octop/workspaces/F46T8Y")
+    cfg = _scoped_cfg(blocker, workspace_dir="/.xfriend/workspaces/F46T8Y")
     out = neutralize_unwritable_local_root(cfg)
     assert out["backend"]["root_dir"] == "/"
     writable = tmp_path / "home"

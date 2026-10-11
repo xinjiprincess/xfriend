@@ -94,7 +94,7 @@ def test_free_octop_ports_kills_listener(tmp_path: Path) -> None:
 set -euo pipefail
 source "{COMMON_SH}"
 export TRIM_APPDEST="{tmp_path}"
-export TRIM_TEMP_LOGFILE="{tmp_path / "octop.log"}"
+export TRIM_TEMP_LOGFILE="{tmp_path / "xfriend.log"}"
 free_octop_ports {port}
 """
         subprocess.check_call(["bash", "-c", script])
@@ -120,7 +120,7 @@ def test_free_octop_ports_kills_orphan_child(tmp_path: Path) -> None:
 set -euo pipefail
 source "{COMMON_SH}"
 export TRIM_APPDEST="{tmp_path}"
-export TRIM_TEMP_LOGFILE="{tmp_path / "octop.log"}"
+export TRIM_TEMP_LOGFILE="{tmp_path / "xfriend.log"}"
 free_octop_ports {port}
 """
         subprocess.check_call(["bash", "-c", script])
@@ -169,8 +169,8 @@ def test_native_main_stop_frees_port_after_wrapper_start(tmp_path: Path) -> None
     cmd = tmp_path / "cmd"
     bindir.mkdir(parents=True)
     pkgvar.mkdir()
-    (data / ".octop").mkdir(parents=True)
-    (data / ".octop" / "octop.db").write_text("", encoding="utf-8")
+    (data / ".xfriend").mkdir(parents=True)
+    (data / ".xfriend" / "xfriend.db").write_text("", encoding="utf-8")
     cmd.mkdir()
     shutil.copy(FNOS_NATIVE / "cmd" / "main", cmd / "main")
     shutil.copy(COMMON_SH, cmd / "common.sh")
@@ -266,8 +266,8 @@ def test_native_main_start_term_cleans_unready_child(tmp_path: Path) -> None:
     data = tmp_path / "data"
     (appdest / "bin").mkdir(parents=True)
     pkgvar.mkdir()
-    (data / ".octop").mkdir(parents=True)
-    (data / ".octop" / "octop.db").write_text("", encoding="utf-8")
+    (data / ".xfriend").mkdir(parents=True)
+    (data / ".xfriend" / "xfriend.db").write_text("", encoding="utf-8")
     cmd = tmp_path / "cmd"
     _copy_ctl(cmd)
     launcher = appdest / "bin" / "octop"
@@ -340,7 +340,7 @@ def test_octop_fpk_native_run_pids_and_sweep(tmp_path: Path) -> None:
 set -euo pipefail
 source "{COMMON_SH}"
 export TRIM_APPDEST="{tmp_path}"
-export TRIM_TEMP_LOGFILE="{tmp_path / "octop.log"}"
+export TRIM_TEMP_LOGFILE="{tmp_path / "xfriend.log"}"
 found="$(octop_fpk_native_run_pids)"
 echo "$found" | grep -qx "{proc.pid}"
 octop_kill_pid_tree {proc.pid} TERM

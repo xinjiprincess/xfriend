@@ -41,6 +41,7 @@ import { isSharedExpertViewer } from "../../../utils/sharedExpert";
 import type { PublishedExpert } from "../../../api/modules/publishedExperts";
 import PublishTemplateButton from "./PublishTemplateButton";
 import AgentMoreActions from "./AgentMoreActions";
+import type { ExecutionExpert } from "../../../api/modules/execution";
 
 const STATE_META: Record<
   string,
@@ -62,6 +63,7 @@ const TRANSIENT = new Set(["starting", "stopping"]);
 
 export interface AgentCardProps {
   agent: OctopAgent;
+  engineBinding?: ExecutionExpert;
   iconName?: string | null;
   iconUrl?: string | null;
   accentColor?: string | null;
@@ -76,6 +78,7 @@ export interface AgentCardProps {
 
 export const AgentCard = memo(function AgentCard({
   agent,
+  engineBinding,
   iconName,
   iconUrl,
   accentColor,
@@ -311,6 +314,11 @@ export const AgentCard = memo(function AgentCard({
           <div className={styles.agentCard2TitleBlock}>
             <div className={styles.agentCard2NameRow}>
               <div className={styles.agentCard2Name}>{agent.name}</div>
+              {engineBinding && (
+                <Tooltip title={engineBinding.capabilities.join(" · ")}>
+                  <Tag>{engineBinding.engine}</Tag>
+                </Tooltip>
+              )}
               {agent.is_shared && (
                 <Tag color="blue">
                   {sharedViewer
@@ -493,6 +501,16 @@ export const AgentCard = memo(function AgentCard({
             </>
           )}
 
+          <button
+            className={styles.agentCard2EditBtn}
+            onClick={() =>
+              navigate(
+                `/execution?expert=${encodeURIComponent(agent.agent_id)}`,
+              )
+            }
+          >
+            {t("execution.engineChat")}
+          </button>
           {chatReady ? (
             <button
               className={styles.agentCard2ChatBtn}

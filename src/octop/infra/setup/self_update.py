@@ -27,7 +27,7 @@ _PYPI_URL = f"https://pypi.org/pypi/{_PACKAGE_NAME}/json"
 _PYPI_SIMPLE = "https://pypi.org/simple"
 _PYPI_UA = {"User-Agent": f"{_PACKAGE_NAME}-updater/1.0"}
 _GREEN_PACKAGES_ENV = "OCTOP_GREEN_PACKAGES"
-_STASH_SUFFIX = ".octop-old"
+_STASH_SUFFIX = ".xfriend-old"
 _PROBE_TIMEOUT_S = 8
 _INSTALL_TIMEOUT_S = 90
 _FPK_INSTALL_TIMEOUT_S = 900
@@ -76,8 +76,8 @@ def green_packages_dir() -> Path | None:
 
 
 def resolve_venv_python() -> str:
-    """Return the Python executable for the managed ~/.octop/venv install."""
-    # Green portable: always the interpreter that launched launch.py, never ~/.octop/venv.
+    """Return the Python executable for the managed ~/.xfriend/venv install."""
+    # Green portable: always the interpreter that launched launch.py, never ~/.xfriend/venv.
     if green_packages_dir() is not None:
         return sys.executable
 

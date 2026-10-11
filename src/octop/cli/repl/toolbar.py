@@ -1,4 +1,4 @@
-"""prompt_toolkit bottom toolbar for ``octop chats repl``."""
+"""prompt_toolkit bottom toolbar for ``xfriend chats repl``."""
 
 from __future__ import annotations
 

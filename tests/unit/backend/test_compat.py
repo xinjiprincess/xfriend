@@ -145,7 +145,7 @@ def test_adapt_write_and_edit_use_current_result_types() -> None:
 
 def test_adapt_mkdir_path_is_noop() -> None:
     wrapped = adapt_backend_protocol(_LegacyRemote())
-    wrapped.mkdir_path("/.octop")
+    wrapped.mkdir_path("/.xfriend")
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,7 @@ from pathlib import Path
 from octop.infra.connectors.gateway.cli_fingerprint import credential_fingerprint
 from octop.infra.connectors.gateway.cli_runner import resolve_binary, run_cli
 
-_FINGERPRINT_NAME = ".octop_feishu_fingerprint"
+_FINGERPRINT_NAME = ".xfriend_feishu_fingerprint"
 _BRAND = "feishu"
 
 

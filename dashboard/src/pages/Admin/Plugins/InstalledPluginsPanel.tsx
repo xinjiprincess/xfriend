@@ -82,6 +82,44 @@ function statusTag(row: InstalledPlugin, t: (key: string) => string) {
 /** Server-wide plugin install, reload, enable, detail, and uninstall surface. */
 export function InstalledPluginsPanel() {
   const { t } = useTranslation();
+  const showVersions = async (id: string) => {
+    try {
+      const versions = await pluginsApi.versions(id);
+      const modal = Modal.info({
+        title: t("plugins.savedVersions"),
+        content: versions.length ? (
+          <Space direction="vertical">
+            {versions.map((version) => (
+              <Popconfirm
+                key={version.id}
+                title={t("plugins.rollbackConfirm")}
+                onConfirm={async () => {
+                  try {
+                    await pluginsApi.rollback(id, version.id);
+                    modal.destroy();
+                    await fetchPlugins();
+                    message.success(t("plugins.rollbackSuccess"));
+                  } catch (error) {
+                    message.error(
+                      apiErrorMessage(error, t("plugins.rollbackFailed"), t),
+                    );
+                  }
+                }}
+              >
+                <Button>
+                  {t("plugins.rollbackVersion", { version: version.version })}
+                </Button>
+              </Popconfirm>
+            ))}
+          </Space>
+        ) : (
+          t("plugins.noSavedVersions")
+        ),
+      });
+    } catch (error) {
+      message.error(apiErrorMessage(error, t("plugins.rollbackFailed"), t));
+    }
+  };
   const [, setSearchParams] = useSearchParams();
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
   const [loading, setLoading] = useState(true);
@@ -288,6 +326,13 @@ export function InstalledPluginsPanel() {
           <Button type="link" size="small" onClick={() => setDetail(row)}>
             {t("plugins.viewDetails")}
           </Button>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => void showVersions(row.id)}
+          >
+            {t("plugins.savedVersions")}
+          </Button>
           <Popconfirm
             title={t("plugins.uninstallConfirm", { id: row.id })}
             onConfirm={() => void handleUninstall(row.id)}
@@ -476,6 +521,13 @@ export function InstalledPluginsPanel() {
                       {t("plugins.viewDetails")}
                     </button>
                     <span className={styles.cardFooterSpacer} />
+                    <Button
+                      type="text"
+                      size="small"
+                      onClick={() => void showVersions(row.id)}
+                    >
+                      {t("plugins.savedVersions")}
+                    </Button>
                     <Switch
                       size="small"
                       checked={enabled}

@@ -2,21 +2,124 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from octop.api.deps import current_user, get_server, require_permission
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.utils.locale import resolve_request_locale
+from octop.infra.voice.library import MAX_SAMPLE_BYTES, VoiceLibrary
 from octop.infra.voice.manager import VoiceManager
+from octop.infra.voice.preferences import (
+    AssistantVoicePreferences,
+    load_preferences,
+    save_preferences,
+)
 from octop.infra.voice.presets import load_voice_presets
 
 router = APIRouter()
 admin_router = APIRouter()
+
+
+def _library(server: Any) -> VoiceLibrary:
+    return VoiceLibrary(server.paths.root, _voice_manager(server))
+
+
+class LibraryVoice(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    mime: str
+    created_at: int
+    mode: str
+
+
+class VoiceName(BaseModel):
+    name: str = Field(min_length=1, max_length=100, pattern=r"\S")
+
+
+class VoiceDesign(VoiceName):
+    provider: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=1000)
+    text: str = Field(min_length=1, max_length=1000)
+
+
+@router.get("/library", response_model=list[LibraryVoice], summary="List your saved voices")
+async def list_library(user: Any = Depends(current_user), server: Any = Depends(get_server)) -> Any:
+    return await asyncio.get_running_loop().run_in_executor(
+        None, lambda: _library(server).list(user.id)
+    )
+
+
+@router.post(
+    "/library",
+    response_model=LibraryVoice,
+    status_code=201,
+    summary="Save a WAV or MP3 voice reference",
+)
+async def upload_library(
+    name: str = Form(min_length=1, max_length=100),
+    audio: UploadFile = File(...),
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> Any:
+    data = await audio.read(MAX_SAMPLE_BYTES + 1)
+    return await asyncio.get_running_loop().run_in_executor(
+        None, lambda: _library(server).create(user.id, name, data)
+    )
+
+
+@router.post(
+    "/library/design",
+    response_model=LibraryVoice,
+    status_code=201,
+    summary="Design and save a MiMo voice",
+    description="Uses the configured provider credentials; the generated sample belongs only to you.",
+)
+async def design_library(
+    body: VoiceDesign, user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> Any:
+    library = _library(server)
+    data = await library.design(body.text, body.provider, body.description)
+    return await asyncio.get_running_loop().run_in_executor(
+        None, lambda: library.create(user.id, body.name, data, description=body.description)
+    )
+
+
+@router.get("/library/{voice_id}/sample", summary="Download your saved voice reference")
+async def library_sample(
+    voice_id: str, user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> Response:
+    data, mime = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: _library(server).sample(user.id, voice_id)
+    )
+    return Response(data, media_type=mime, headers={"Cache-Control": "private, no-store"})
+
+
+@router.patch("/library/{voice_id}", response_model=LibraryVoice, summary="Rename your saved voice")
+async def rename_library(
+    voice_id: str,
+    body: VoiceName,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> Any:
+    return await asyncio.get_running_loop().run_in_executor(
+        None, lambda: _library(server).rename(user.id, voice_id, body.name)
+    )
+
+
+@router.delete("/library/{voice_id}", status_code=204, summary="Delete your saved voice")
+async def delete_library(
+    voice_id: str, user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> None:
+    await asyncio.get_running_loop().run_in_executor(
+        None, lambda: _library(server).delete(user.id, voice_id)
+    )
 
 
 def _voice_manager(server: Any) -> VoiceManager:
@@ -65,6 +168,40 @@ class ActiveVoiceBody(BaseModel):
     tts: str | None = None
 
 
+class AssistantVoiceBody(BaseModel):
+    stt: str = Field(default="", max_length=200, description="Empty inherits the system ASR")
+    tts: str = Field(default="", max_length=200, description="Empty inherits the system TTS")
+    voice_id: str = Field(default="", max_length=200, description="Voice supported by the provider")
+    auto_read: bool = False
+    auto_send: bool = False
+
+
+@router.get(
+    "/preferences", response_model=AssistantVoiceBody, summary="Read your assistant voice choices"
+)
+async def voice_preferences(
+    user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> AssistantVoicePreferences:
+    return load_preferences(_voice_manager(server), user.id)
+
+
+@router.put(
+    "/preferences", response_model=AssistantVoiceBody, summary="Save your assistant voice choices"
+)
+async def update_voice_preferences(
+    body: AssistantVoiceBody,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> AssistantVoicePreferences:
+    if body.voice_id.startswith("library:"):
+        await asyncio.get_running_loop().run_in_executor(
+            None, lambda: _library(server).validate_selection(user.id, body.voice_id, body.tts)
+        )
+    return save_preferences(
+        _voice_manager(server), user.id, AssistantVoicePreferences(**body.model_dump())
+    )
+
+
 class TTSBody(BaseModel):
     text: str = Field(min_length=1, max_length=8000)
     voice_id: str | None = None
@@ -90,7 +227,10 @@ async def list_voice_providers(
     _: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
-    return [_row_to_dict(r) for r in server.services.voice_provider_repo.list_all()]
+    return [
+        {**_row_to_dict(r), "api_key": None, "extra": {}}
+        for r in server.services.voice_provider_repo.list_all()
+    ]
 
 
 @router.get("/active")
@@ -134,10 +274,17 @@ async def transcribe_audio(
 @router.post("/tts")
 async def synthesize_speech(
     body: TTSBody,
-    _: Any = Depends(current_user),
+    user: Any = Depends(current_user),
     server: Any = Depends(get_server),
-) -> StreamingResponse:
+) -> Response:
     mgr = _voice_manager(server)
+    if body.voice_id and body.voice_id.startswith("library:"):
+        data = await _library(server).synthesize(
+            user.id, body.voice_id.removeprefix("library:"), body.text, body.provider
+        )
+        return Response(
+            data, media_type="audio/wav", headers={"Cache-Control": "private, no-store"}
+        )
 
     async def _stream() -> AsyncIterator[bytes]:
         async for chunk in mgr.synthesize(

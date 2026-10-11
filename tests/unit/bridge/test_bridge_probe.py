@@ -9,19 +9,19 @@ from octop.infra.bridge.manager import _absolute_peer_url, _probe_agent_summary
 
 def test_absolute_peer_url_joins_relative_icon() -> None:
     assert (
-        _absolute_peer_url("https://demo.octop.chat", "/api/agents/abc/icon")
-        == "https://demo.octop.chat/api/agents/abc/icon"
+        _absolute_peer_url("https://demo.xfriend.chat", "/api/agents/abc/icon")
+        == "https://demo.xfriend.chat/api/agents/abc/icon"
     )
 
 
 def test_absolute_peer_url_keeps_absolute() -> None:
     url = "https://cdn.example/icon.png"
-    assert _absolute_peer_url("https://demo.octop.chat", url) == url
+    assert _absolute_peer_url("https://demo.xfriend.chat", url) == url
 
 
 def test_absolute_peer_url_empty() -> None:
-    assert _absolute_peer_url("https://demo.octop.chat", None) is None
-    assert _absolute_peer_url("https://demo.octop.chat", "  ") is None
+    assert _absolute_peer_url("https://demo.xfriend.chat", None) is None
+    assert _absolute_peer_url("https://demo.xfriend.chat", "  ") is None
 
 
 def test_probe_agent_summary_maps_fields() -> None:
@@ -37,7 +37,7 @@ def test_probe_agent_summary_maps_fields() -> None:
             "state": "running",
             "kind": "expert",
         },
-        peer_base_url="https://demo.octop.chat",
+        peer_base_url="https://demo.xfriend.chat",
     )
     assert summary == {
         "agent_id": "01AGENT",
@@ -58,7 +58,7 @@ def test_probe_agent_summary_drops_peer_avatar_without_connection() -> None:
             "icon_url": "/api/agents/01AGENT/icon",
             "name": "Demo Expert",
         },
-        peer_base_url="https://demo.octop.chat",
+        peer_base_url="https://demo.xfriend.chat",
     )
     assert summary["icon_url"] is None
 
@@ -70,7 +70,7 @@ def test_probe_agent_summary_rewrites_avatar_when_connected() -> None:
             "icon_url": "/api/agents/01AGENT/avatar",
             "name": "Demo Expert",
         },
-        peer_base_url="https://demo.octop.chat",
+        peer_base_url="https://demo.xfriend.chat",
         connection_id="01CID",
     )
     assert summary["icon_url"] == "/api/agents/bridge:01CID:01AGENT/avatar"

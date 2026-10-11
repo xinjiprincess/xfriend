@@ -90,7 +90,7 @@ async def resolve_harness_session(
     except ImportError as exc:
         raise OctopError(
             ErrorCode.INTERNAL_ERROR,
-            "octop-browser not installed",
+            "Browser runtime not installed",
             status=503,
         ) from exc
 
@@ -135,7 +135,7 @@ async def resolve_harness_session(
         resolve_browser_display,
     )
 
-    # Shared ~/.octop/browser-profiles (not per-agent workspace).
+    # Shared ~/.xfriend/browser-profiles (not per-agent workspace).
     await prepare_harness_profile_for_launch(profile)
     # Virtual desktop (Xvnc :99) → headed Chrome so the window shows on
     # remote desktop; otherwise force headless (do not use mode=auto — a
@@ -341,7 +341,7 @@ async def handoff(
 
 @router.post(
     "/browser/shutdown",
-    summary="Stop the local Chrome process for an octop-browser profile",
+    summary="Stop the local Chrome process for a browser profile",
 )
 async def shutdown_browser(user: Any = Depends(current_user)) -> dict[str, Any]:
     """Terminate the current user's Octop-managed Chrome. Cookies stay on disk."""
@@ -350,7 +350,7 @@ async def shutdown_browser(user: Any = Depends(current_user)) -> dict[str, Any]:
     except ImportError as exc:
         raise OctopError(
             ErrorCode.INTERNAL_ERROR,
-            "octop-browser not installed",
+            "Browser runtime not installed",
             status=503,
         ) from exc
 

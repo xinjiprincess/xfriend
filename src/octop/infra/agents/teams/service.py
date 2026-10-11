@@ -19,7 +19,7 @@ TEAM_TEMPLATE_NAME = "team-host"
 TEAM_MIN_MEMBERS = 2
 TEAM_AVATAR_URL = "/experts/avatars/team-host.svg"
 TEMPLATE_DIR = Path(__file__).resolve().parent / "template"
-TEAM_MANIFEST_WORKSPACE = ".octop/manifest.json"
+TEAM_MANIFEST_WORKSPACE = ".xfriend/manifest.json"
 
 # Hosts only dispatch and keep light memory/time — members do the work.
 HOST_TOOLS_ALLOWED: frozenset[str] = frozenset(

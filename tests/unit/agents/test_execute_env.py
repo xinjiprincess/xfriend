@@ -43,14 +43,14 @@ def test_inject_local_shell_uses_octop_auth_for_new_layout(tmp_path: Path, monke
         paths=paths,
         row=_row("agent-1"),
         workspace_dir=ws,
-        cfg={"system_files_path": ".octop"},
+        cfg={"system_files_path": ".xfriend"},
     )
     env = spec["env"]
     assert env["OCTOP_AGENT_ID"] == "agent-1"
-    assert (ws / ".octop" / "auth").is_dir()
-    assert env["OCTOP_AUTH_DIR"] == str(ws / ".octop" / "auth")
+    assert (ws / ".xfriend" / "auth").is_dir()
+    assert env["OCTOP_AUTH_DIR"] == str(ws / ".xfriend" / "auth")
     assert env["OCTOP_HOME"] == str(paths.root)
-    assert env["OCTOP_SKILLS_DIR"] == str(ws / ".octop" / "skills")
+    assert env["OCTOP_SKILLS_DIR"] == str(ws / ".xfriend" / "skills")
     assert "GLOBAL_KEY" not in env
     assert "AGENT_KEY" not in env
     assert spec["inherit_env"] is True
@@ -69,8 +69,8 @@ def test_inject_legacy_layout_keeps_root_octop_auth(tmp_path: Path, monkeypatch)
         workspace_dir=ws,
         cfg={},
     )
-    assert (ws / ".octop-auth").is_dir()
-    assert spec["env"]["OCTOP_AUTH_DIR"] == str(ws / ".octop-auth")
+    assert (ws / ".xfriend-auth").is_dir()
+    assert spec["env"]["OCTOP_AUTH_DIR"] == str(ws / ".xfriend-auth")
 
 
 def test_inject_keeps_legacy_auth_when_tokens_already_there(tmp_path: Path, monkeypatch) -> None:
@@ -78,7 +78,7 @@ def test_inject_keeps_legacy_auth_when_tokens_already_there(tmp_path: Path, monk
     paths = PathLayout(tmp_path)
     paths.ensure_root()
     ws = paths.ensure_agent_workspace("agent-mig")
-    legacy = ws / ".octop-auth"
+    legacy = ws / ".xfriend-auth"
     legacy.mkdir()
     (legacy / "token.json").write_text("{}", encoding="utf-8")
 
@@ -87,7 +87,7 @@ def test_inject_keeps_legacy_auth_when_tokens_already_there(tmp_path: Path, monk
         paths=paths,
         row=_row("agent-mig"),
         workspace_dir=ws,
-        cfg={"system_files_path": ".octop"},
+        cfg={"system_files_path": ".xfriend"},
     )
     assert spec["env"]["OCTOP_AUTH_DIR"] == str(legacy)
 
@@ -107,10 +107,10 @@ def test_inject_composite_default_local_shell(tmp_path: Path, monkeypatch) -> No
         paths=paths,
         row=_row("agent-c"),
         workspace_dir=ws,
-        cfg={"system_files_path": ".octop"},
+        cfg={"system_files_path": ".xfriend"},
     )
     assert spec["default"]["env"]["OCTOP_AGENT_ID"] == "agent-c"
-    assert spec["default"]["env"]["OCTOP_AUTH_DIR"] == str(ws / ".octop" / "auth")
+    assert spec["default"]["env"]["OCTOP_AUTH_DIR"] == str(ws / ".xfriend" / "auth")
     assert spec["default"]["inherit_env"] is True
 
 
@@ -120,11 +120,11 @@ def test_inject_scoped_root_uses_agent_facing_auth_paths(tmp_path: Path, monkeyp
     paths.ensure_root()
     root = tmp_path / "scoped"
     root.mkdir()
-    ws = root / ".octop" / "workspaces" / "agent-s"
+    ws = root / ".xfriend" / "workspaces" / "agent-s"
     ws.mkdir(parents=True)
     cfg = {
-        "system_files_path": ".octop",
-        "workspace_dir": "/.octop/workspaces/agent-s",
+        "system_files_path": ".xfriend",
+        "workspace_dir": "/.xfriend/workspaces/agent-s",
         "backend": {
             "type": "local_shell",
             "root_dir": str(root),
@@ -140,9 +140,9 @@ def test_inject_scoped_root_uses_agent_facing_auth_paths(tmp_path: Path, monkeyp
         cfg=cfg,
     )
     env = spec["env"]
-    assert (ws / ".octop" / "auth").is_dir()
-    assert env["OCTOP_AUTH_DIR"] == "/.octop/workspaces/agent-s/.octop/auth"
-    assert env["OCTOP_SKILLS_DIR"] == "/.octop/workspaces/agent-s/.octop/skills"
+    assert (ws / ".xfriend" / "auth").is_dir()
+    assert env["OCTOP_AUTH_DIR"] == "/.xfriend/workspaces/agent-s/.xfriend/auth"
+    assert env["OCTOP_SKILLS_DIR"] == "/.xfriend/workspaces/agent-s/.xfriend/skills"
 
 
 def test_inject_docker_only_sets_platform_defaults(tmp_path: Path, monkeypatch) -> None:
@@ -157,9 +157,9 @@ def test_inject_docker_only_sets_platform_defaults(tmp_path: Path, monkeypatch) 
         paths=paths,
         row=_row("agent-2"),
         workspace_dir=ws,
-        cfg={"system_files_path": ".octop"},
+        cfg={"system_files_path": ".xfriend"},
     )
     env = spec["env"]
     assert env["OCTOP_AGENT_ID"] == "agent-2"
-    assert env["OCTOP_AUTH_DIR"] == str(ws / ".octop" / "auth")
+    assert env["OCTOP_AUTH_DIR"] == str(ws / ".xfriend" / "auth")
     assert "GLOBAL_KEY" not in env

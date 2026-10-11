@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -23,14 +25,19 @@ const trayDoubleClick = 400 * time.Millisecond
 
 // App is the Wails service bound to the shell UI.
 type App struct {
-	app            *application.App
-	window         *application.WebviewWindow
-	settingsWindow *application.WebviewWindow
-	store          *settingsStore
-	sleep          *sleepGuard
-	cmd            *exec.Cmd
-	mu             sync.Mutex
-	quitting       bool
+	app             *application.App
+	window          *application.WebviewWindow
+	settingsWindow  *application.WebviewWindow
+	assistantWindow *application.WebviewWindow
+	voiceMu         sync.Mutex
+	voiceCmd        *exec.Cmd
+	assistantBase   string
+	store           *settingsStore
+	sleep           *sleepGuard
+	cmd             *exec.Cmd
+	mu              sync.Mutex
+	quitting        bool
+	startupErr      error
 
 	trayClickMu    sync.Mutex
 	lastTrayClick  time.Time
@@ -42,6 +49,7 @@ func (a *App) ServiceName() string { return "desktop" }
 func (a *App) ServiceStartup(context.Context, application.ServiceOptions) error { return nil }
 
 func (a *App) ServiceShutdown() error {
+	a.StopAssistantVoice()
 	a.sleep.stop()
 	a.mu.Lock()
 	cmd := a.cmd
@@ -138,7 +146,7 @@ func (a *App) applyDashboardPrefs(s Settings) {
 		return
 	}
 	js := fmt.Sprintf(
-		`(function(){try{localStorage.setItem('octop:ui-locale',%s);}catch(e){}})();`,
+		`(function(){try{const locale=%s;if(localStorage.getItem('octop:ui-locale')!==locale){localStorage.setItem('octop:ui-locale',locale);location.reload();}}catch(e){}})();`,
 		jsonString(string(s.Locale)),
 	)
 	a.window.ExecJS(js)
@@ -157,7 +165,11 @@ func (a *App) setStatus(msg string) {
 }
 
 func (a *App) boot() {
-	locale := LocaleEN
+	if a.startupErr != nil {
+		a.setStatus(a.startupErr.Error())
+		return
+	}
+	locale := LocaleZH
 	if a.store != nil {
 		locale = a.store.get().Locale
 	}
@@ -177,6 +189,18 @@ func (a *App) boot() {
 		return
 	}
 	root := portableDir()
+	port, err := availableLocalPort(s.Port)
+	if err != nil {
+		a.setStatus(err.Error())
+		return
+	}
+	if port != s.Port {
+		s.Port = port
+		if err := a.store.save(s); err != nil {
+			a.setStatus(err.Error())
+			return
+		}
+	}
 	a.mu.Lock()
 	stopOctop(a.cmd)
 	cmd, err := startOctop(root, s.Port)
@@ -187,11 +211,20 @@ func (a *App) boot() {
 		return
 	}
 	base := dashboardURL(s.Port)
+	var processDone <-chan error
+	logPath := ""
+	if runtime.GOOS == "windows" {
+		done := make(chan error, 1)
+		go func() { done <- cmd.Wait() }()
+		processDone = done
+		logPath = serviceLogPath()
+	}
 	a.setStatus(desktopText(locale, copyStatusStartingService))
-	if err := waitHealth(locale, base, 2*time.Minute); err != nil {
+	if err := waitHealthForProcess(locale, base, 5*time.Minute, processDone, logPath); err != nil {
 		a.setStatus(err.Error())
 		return
 	}
+	_ = os.RemoveAll(root + ".previous")
 	a.showDashboard(base)
 }
 
@@ -199,7 +232,20 @@ func (a *App) showDashboard(base string) {
 	if a.window == nil {
 		return
 	}
+	if target, err := url.Parse(base); err == nil {
+		query := target.Query()
+		query.Set("desktopLocale", string(a.store.get().Locale))
+		target.RawQuery = query.Encode()
+		base = target.String()
+	}
 	a.window.SetURL(base)
+	a.mu.Lock()
+	a.assistantBase = base
+	a.mu.Unlock()
+	if a.assistantWindow != nil {
+		a.assistantWindow.ExecJS("window.dispatchEvent(new CustomEvent('assistant:base',{detail:" + jsonString(base) + "}));")
+		a.assistantWindow.Show()
+	}
 	a.scheduleDragOverlay()
 	s := a.store.get()
 	go func() {
@@ -287,23 +333,31 @@ func (a *App) requestQuit() {
 }
 
 func main() {
+	startupErr := migrateDesktopHome()
+	profilePath := filepath.Join(octopHome(), "webview2")
+	if startupErr != nil {
+		profilePath = filepath.Join(os.TempDir(), "xfriend-migration-error-webview")
+	}
 	store := &settingsStore{cur: loadSettings()}
 	api := &App{
-		store: store,
-		sleep: &sleepGuard{},
+		store:      store,
+		startupErr: startupErr,
+		sleep:      &sleepGuard{},
 	}
 
 	app := application.New(application.Options{
-		Name:        "Octop",
-		Description: "Octop desktop",
+		Name:        "Singu Xfriend",
+		Description: "Singu Xfriend desktop",
 		Services: []application.Service{
 			application.NewService(api),
 		},
+		RawMessageHandler: api.handleAssistantMessage,
 		Assets: application.AssetOptions{
 			Handler: application.BundledAssetFileServer(assets),
 		},
 		Windows: application.WindowsOptions{
 			DisableQuitOnLastWindowClosed: true,
+			WebviewUserDataPath:           profilePath,
 		},
 		Linux: application.LinuxOptions{
 			DisableQuitOnLastWindowClosed: true,
@@ -319,7 +373,7 @@ func main() {
 	})
 
 	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:                "Octop",
+		Title:                "Singu Xfriend",
 		Width:                1200,
 		Height:               800,
 		URL:                  "/",
@@ -337,12 +391,20 @@ func main() {
 	app.Event.On("desktop:close", func(_ *application.CustomEvent) {
 		api.hideToTray()
 	})
-	installDragOverlay := func(_ *application.WindowEvent) { api.scheduleDragOverlay() }
+	var bootOnce sync.Once
+	installDragOverlay := func(_ *application.WindowEvent) {
+		api.scheduleDragOverlay()
+		// Navigate only after the main WebView controller has initialized.
+		bootOnce.Do(func() { go api.boot() })
+		if win.IsVisible() && (api.settingsWindow == nil || !api.settingsWindow.IsVisible()) {
+			win.Focus()
+		}
+	}
 	win.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, installDragOverlay)
 	win.OnWindowEvent(events.Windows.WebViewNavigationCompleted, installDragOverlay)
 	win.OnWindowEvent(events.Linux.WindowLoadFinished, installDragOverlay)
 	settingsWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Octop 设置",
+		Title:            "Singu Xfriend 设置",
 		Width:            settingsWindowWidth,
 		Height:           settingsWindowOuterHeight(),
 		URL:              "/?settings=1",
@@ -356,6 +418,7 @@ func main() {
 		},
 	})
 	api.settingsWindow = settingsWin
+	api.createAssistantWindow()
 	app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(event *application.ApplicationEvent) {
 		event.Cancel()
 		restoreMainAfterDockClick(api.window, api.settingsWindow)
@@ -386,7 +449,7 @@ func main() {
 
 	tray := app.SystemTray.New()
 	applyTrayIcon(tray)
-	tray.SetTooltip("Octop")
+	tray.SetTooltip("Singu Xfriend")
 	tray.AttachWindow(settingsWin).WindowOffset(6)
 	showSettings := func() { tray.ShowWindow() }
 	if trayLeftClickShowsSettings(runtime.GOOS) {
@@ -404,7 +467,6 @@ func main() {
 	}
 
 	api.scheduleDragOverlay()
-	go api.boot()
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

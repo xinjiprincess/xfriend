@@ -1,4 +1,4 @@
-"""Manual memory maintenance coordinated by the running Octop process."""
+"""Manual memory maintenance coordinated by the running Singu Xfriend process."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from octop.infra.utils.paths import PathLayout
 
 @click.group()
 def memory() -> None:
-    """Memory maintenance through the running local Octop server."""
+    """Memory maintenance through the running local Singu Xfriend server."""
 
 
 def _print_agents(agents: list[dict[str, str]], locale: str) -> None:

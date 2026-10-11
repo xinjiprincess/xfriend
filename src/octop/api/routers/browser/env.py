@@ -76,7 +76,7 @@ def _probe_env() -> dict[str, Any]:
     except ImportError as exc:
         if not out["harness_browser"]:
             out["error"] = (
-                f"playwright not installed: {exc}. Install octop[browser] extras or octop-browser."
+                f"playwright not installed: {exc}. Use the Singu Xfriend installer with browser support."
             )
         return out
 

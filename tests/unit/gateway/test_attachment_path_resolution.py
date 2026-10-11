@@ -87,7 +87,7 @@ async def test_hint_uses_agent_facing_absolute_path() -> None:
 @pytest.mark.asyncio
 async def test_hint_remaps_scoped_root_to_agent_facing() -> None:
     with tempfile.TemporaryDirectory() as root_dir:
-        host_ws = Path(root_dir) / ".octop" / "workspaces" / "ABC123"
+        host_ws = Path(root_dir) / ".xfriend" / "workspaces" / "ABC123"
         host_ws.mkdir(parents=True)
         backend = LocalShellBackend(root_dir=root_dir, virtual_mode=True)
         workspace = BackendWorkspace(backend, host_ws)
@@ -98,7 +98,7 @@ async def test_hint_remaps_scoped_root_to_agent_facing() -> None:
             media_type="application/pdf",
         )
         resolved = resolve_inbound_attachment_path(workspace, stored.path)
-        assert resolved == f"/.octop/workspaces/ABC123/{stored.path}"
+        assert resolved == f"/.xfriend/workspaces/ABC123/{stored.path}"
         assert not resolved.startswith(root_dir)
 
 

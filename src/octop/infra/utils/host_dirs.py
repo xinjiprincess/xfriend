@@ -288,7 +288,7 @@ def probe_host_root_dir(
     if not os.access(root, os.R_OK | os.W_OK | os.X_OK):
         return {"ok": False, "code": "permission_denied"}
 
-    probe_file = root / f".octop-root-probe-{uuid.uuid4().hex}"
+    probe_file = root / f".xfriend-root-probe-{uuid.uuid4().hex}"
     try:
         probe_file.write_text("", encoding="utf-8")
     except OSError as exc:

@@ -17,7 +17,7 @@ from octop.infra.skills.skill_package_store import SkillPackageStore
 
 @pytest.fixture
 def store(tmp_path: Path) -> SkillPackageStore:
-    db = SqlitePool(tmp_path / "octop.db")
+    db = SqlitePool(tmp_path / "xfriend.db")
     run_migrations(db)
     return SkillPackageStore(
         repo=SkillPackageRepo(db),

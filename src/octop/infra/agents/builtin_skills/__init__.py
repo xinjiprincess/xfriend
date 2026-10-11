@@ -18,10 +18,10 @@ def is_octop_builtin_skills_path(rel: str) -> bool:
     """True for workspace-relative paths inside the Octop-owned built-in Skills root.
 
     Mirrors the two spellings ``_assert_workspace_mutable`` guards: the API name, and
-    the ``.octop/``-prefixed system location newer agents keep it in.
+    the ``.xfriend/``-prefixed system location newer agents keep it in.
     """
     posix = str(rel).replace("\\", "/").strip("/")
-    for prefix in (OCTOP_BUILTIN_SKILLS_ROOT, f".octop/{OCTOP_BUILTIN_SKILLS_ROOT}"):
+    for prefix in (OCTOP_BUILTIN_SKILLS_ROOT, f".xfriend/{OCTOP_BUILTIN_SKILLS_ROOT}"):
         if posix == prefix or posix.startswith(f"{prefix}/"):
             return True
     return False

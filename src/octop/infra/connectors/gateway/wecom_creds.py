@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from octop.infra.connectors.gateway.cli_fingerprint import credential_fingerprint
 
 _MCP_CONFIG_URL = "https://qyapi.weixin.qq.com/cgi-bin/aibot/cli/get_mcp_config"
-_FINGERPRINT_NAME = ".octop_wecom_fingerprint"
+_FINGERPRINT_NAME = ".xfriend_wecom_fingerprint"
 _BIND_SOURCE_INTERACTIVE = 1
 _USER_AGENT = f"WeComCLI/0.1.9 distribution/octop {platform.system().lower()}/{platform.machine()}"
 

@@ -307,7 +307,7 @@ def _action_display_env(display: str | None) -> dict[str, str]:
     # Session bus is written by start-session.sh as:
     #   export DBUS_SESSION_BUS_ADDRESS="..."
     #   export DBUS_SESSION_BUS_PID="..."
-    dbus_env = Path("/tmp/octop-desktop-dbus-env")
+    dbus_env = Path("/tmp/xfriend-desktop-dbus-env")
     if not dbus_env.is_file():
         return env
     try:

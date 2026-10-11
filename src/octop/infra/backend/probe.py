@@ -167,8 +167,8 @@ def _probe_docker(row: BackendRow) -> dict[str, Any]:
     # Ephemeral probe container: close() removes it.
     spec["auto_remove"] = True
 
-    workspace = tempfile.mkdtemp(prefix="octop-docker-probe-")
-    test_name = f".octop-probe-{uuid.uuid4().hex}.txt"
+    workspace = tempfile.mkdtemp(prefix="xfriend-docker-probe-")
+    test_name = f".xfriend-probe-{uuid.uuid4().hex}.txt"
     test_path = f"/{test_name}"
     backend: Any = None
     try:

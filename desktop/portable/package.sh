@@ -84,7 +84,11 @@ assemble_one() {
   local plat="$1"
   local runtime="${GREEN_RUNTIMES}/${plat}"
   local wheel_dir="${GREEN_WHEELS}/${plat}"
-  local staging="${GREEN_RELEASE}/Octop-${plat}"
+  local payload="Octop-${plat}"
+  if [[ "$plat" == windows-amd64 ]]; then
+    payload="Xfriend-${plat}"
+  fi
+  local staging="${GREEN_RELEASE}/${payload}"
   local zip_path="${GREEN_RELEASE}/$(portable_zip_basename "$plat")"
   local pyplat
 
@@ -97,6 +101,13 @@ assemble_one() {
     echo "[package] missing runtime ${runtime}" >&2
     echo "  Run: bash desktop/portable/bootstrap-runtime.sh ${plat}" >&2
     exit 1
+  fi
+
+  local components=""
+  if [[ "$plat" == windows-amd64 ]]; then
+    components="${XFRIEND_COMPONENTS_DIR:-${REPO_ROOT}/desktop/portable/components/${plat}}"
+    # Validate release inputs before rebuilding or replacing the staging tree.
+    uv run --project "$REPO_ROOT" python "${REPO_ROOT}/scripts/desktop_components.py" verify --root "$components"
   fi
 
   mkdir -p "$wheel_dir" "$GREEN_RELEASE" "$GREEN_ROOT"
@@ -254,6 +265,20 @@ assemble_one() {
       "${REPO_ROOT}/pyproject.toml" | head -1
   } > "${staging}/VERSION.txt"
 
+  # The Windows x64 release includes separately pinned DSH and export browser.
+  if [[ -n "$components" ]]; then
+    cp -R "${components}/engines" "${staging}/engines"
+    cp -R "${components}/browsers" "${staging}/browsers"
+    cp "${components}/components.json" "${staging}/components.json"
+  fi
+
+  # Hash-based bytecode stays valid after the desktop extractor changes mtimes.
+  # Precompile on the build host so first launch avoids thousands of cache writes.
+  if [[ "$plat" == "$host" ]]; then
+    echo "[package] ${plat}: precompiling relocatable Python bytecode"
+    "$install_python" -m compileall -q -j 4 --invalidation-mode checked-hash "${staging}/packages"
+  fi
+
   rm -f "$zip_path"
   echo "[package] ${plat}: zipping → ${zip_path}"
   local zip_name zip_stem
@@ -262,7 +287,7 @@ assemble_one() {
   (
     cd "$GREEN_RELEASE"
     if command -v zip >/dev/null 2>&1; then
-      zip -qry "$zip_name" "Octop-${plat}"
+      zip -qry "$zip_name" "$payload"
     else
       # Windows runners often have `python` but not `python3` / `zip`.
       py=""
@@ -275,7 +300,7 @@ assemble_one() {
         echo "[package] need zip or python to create archive" >&2
         exit 1
       fi
-      "$py" -c "import shutil; shutil.make_archive('${zip_stem}', 'zip', '.', 'Octop-${plat}')"
+      "$py" -c "import shutil; shutil.make_archive('${zip_stem}', 'zip', '.', '${payload}')"
     fi
   )
   echo "[package] wrote ${zip_path}"

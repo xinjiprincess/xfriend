@@ -50,7 +50,7 @@ async def ensure_record_daemon() -> dict[str, Any]:
     except ImportError as exc:
         raise OctopError(
             ErrorCode.INTERNAL_ERROR,
-            "octop-browser record/replay is not installed",
+            "Browser recording runtime is not installed",
             status=503,
         ) from exc
     return await ensure_daemon()
@@ -62,7 +62,7 @@ async def send_record_request(request: dict[str, Any]) -> dict[str, Any]:
     except ImportError as exc:
         raise OctopError(
             ErrorCode.INTERNAL_ERROR,
-            "octop-browser record/replay is not installed",
+            "Browser recording runtime is not installed",
             status=503,
         ) from exc
     return await send_request(request)
@@ -79,7 +79,7 @@ async def run_replay_recording(
     except ImportError as exc:
         raise OctopError(
             ErrorCode.INTERNAL_ERROR,
-            "octop-browser record/replay is not installed",
+            "Browser recording runtime is not installed",
             status=503,
         ) from exc
     return await ReplayRunner().run(recording_id, profile=profile, inputs=inputs)
@@ -105,7 +105,7 @@ def _require_owned_recording(recording_id: str, profile: str) -> Any:
     except ImportError as exc:
         raise OctopError(
             ErrorCode.INTERNAL_ERROR,
-            "octop-browser record/replay is not installed",
+            "Browser recording runtime is not installed",
             status=503,
         ) from exc
     try:
@@ -265,7 +265,7 @@ async def record_stop_and_generate_skill(
                 # Derive a skill name from the recording name or ID
                 skill_name = manifest.target.title.strip() or recording_id
     except ImportError:
-        # octop-browser not installed — skill generation not possible
+        # Browser runtime not installed — skill generation not possible
         pass
     except Exception:
         # Non-critical: if we can't read the skill file, just return without it

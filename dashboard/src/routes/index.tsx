@@ -12,6 +12,11 @@ const PersonalizationPage = lazy(
   () => import("../pages/Agent/Personalization"),
 );
 const ACPPage = lazy(() => import("../pages/Agent/ACP"));
+const AssistantSettings = lazy(() => import("../pages/AssistantSettings"));
+const ExecutionPage = lazy(() => import("../pages/Execution"));
+const PlatformCollaboration = lazy(
+  () => import("../pages/PlatformCollaboration"),
+);
 const TokenUsagePage = lazy(() => import("../pages/Control/TokenUsage"));
 
 // Lazy-loaded pages — Control
@@ -68,6 +73,9 @@ export const pathToKey: Record<string, string> = {
   "/agent-config": "agent-config",
   // Control
   "/acp": "acp",
+  "/platform-collaboration": "acp",
+  "/assistant-settings": "acp",
+  "/execution": "experts",
   "/channels": "channels",
   "/workbench": "workbench",
   "/workbench/terminal": "workbench",
@@ -169,6 +177,9 @@ export const routeConfigs: RouteConfig[] = [
 
   // Control (RequirePermission via pathPermissionKeys in MainLayout)
   { path: "/acp", element: <ACPPage /> },
+  { path: "/platform-collaboration", element: <PlatformCollaboration /> },
+  { path: "/assistant-settings", element: <AssistantSettings /> },
+  { path: "/execution", element: <ExecutionPage /> },
   {
     path: "/channels",
     element: <RedirectPreserveSearch to="/personalization/channels" />,

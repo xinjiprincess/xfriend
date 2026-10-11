@@ -19,17 +19,25 @@ from octop.infra.agents.experts.catalog import ExpertCatalog, default_library_ro
 from octop.infra.agents.manager import AgentManager
 from octop.infra.agents.plugins.manager import PluginManager
 from octop.infra.agents.subagents.catalog import SubagentCatalog, default_package_root
+from octop.infra.connectors.platform_collaboration import PlatformCollaboration
 from octop.infra.cron.manager import CronManager
 from octop.infra.db.factory import open_database, should_defer_control_plane_db
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.services import SharedServices, build_shared_services
+from octop.infra.engines.adapters import DSHEngine, NativeEngine
+from octop.infra.engines.dsh import DSHService
+from octop.infra.engines.execution import ExecutionService
+from octop.infra.engines.packages import EnginePackages
+from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.gateway import Gateway
 from octop.infra.mobile.config_probe import ensure_mobile_capabilities_probed
 from octop.infra.proactive.scheduler import ProactiveCareScheduler
 from octop.infra.proactive.service import ProactiveCareService
 from octop.infra.setup import password_file as _wizard_pw
+from octop.infra.setup.brand_migration import migrate_agent_paths, migrate_local_files
 from octop.infra.setup.password_file import WIZARD_FILE_NAME
 from octop.infra.setup.wizard_tokens import WizardTokenStore
+from octop.infra.startup import StartupProgress
 from octop.infra.users.manager import UserManager
 from octop.infra.utils.paths import PathLayout
 
@@ -128,7 +136,7 @@ def delaycompress_rotated_logs(
         return
     plains = [
         entry
-        for entry in log_dir.glob("octop.log.*")
+        for entry in log_dir.glob("xfriend.log.*")
         if entry.is_file() and not entry.name.endswith(".gz")
     ]
     if not plains:
@@ -178,7 +186,7 @@ def _build_log_handler(
         max_bytes=max_bytes,
         compress_rotated=compress_rotated,
     )
-    # Rotated files get a date suffix, e.g. octop.log.2026-07-16
+    # Rotated files get a date suffix, e.g. xfriend.log.2026-07-16
     handler.suffix = "%Y-%m-%d"
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-5s %(name)s — %(message)s"))
     return handler
@@ -194,19 +202,21 @@ def _purge_stale_logs(log_dir: Path, retention_days: int) -> None:
     if retention_days <= 0:
         return
     cutoff = time.time() - retention_days * 86400
-    for entry in log_dir.glob("octop.log.*"):
+    for entry in log_dir.glob("xfriend.log.*"):
         if entry.is_file() and entry.stat().st_mtime < cutoff:
             with suppress(OSError):
                 entry.unlink()
 
 
-def _attach_log_handler(target: logging.Logger, handler: TimedRotatingFileHandler) -> None:
+def _attach_log_handler(target: logging.Logger, handler: TimedRotatingFileHandler) -> bool:
     """Add ``handler`` to ``target`` only if an equivalent one is not present yet."""
     if not any(
         isinstance(h, TimedRotatingFileHandler) and h.baseFilename == handler.baseFilename
         for h in target.handlers
     ):
         target.addHandler(handler)
+        return True
+    return False
 
 
 @dataclass
@@ -245,11 +255,33 @@ class AppRuntime:
 
 
 class OctopServer:
+    def _assert_plugins_idle(self) -> None:
+        if self._execution_service is not None and self._execution_service.has_active_tasks:
+            raise OctopError(
+                ErrorCode.AGENT_BUSY, "Wait for execution tasks before changing plugins"
+            )
+        if (
+            self.app_runtime is not None
+            and self.services is not None
+            and any(
+                self.app_runtime.agent_registry.is_agent_active(row.agent_id)
+                for row in self.services.agent_repo.list_all()
+            )
+        ):
+            raise OctopError(ErrorCode.AGENT_BUSY, "Wait for active agents before changing plugins")
+
     def __init__(self, home: Path | None = None) -> None:
+        self.startup_progress = StartupProgress()
+        self._logging_handler: TimedRotatingFileHandler | None = None
+        self._logging_targets: list[logging.Logger] = []
         self._home = home or PathLayout.from_env().root
         self.paths = PathLayout(self._home)
         self.config: OctopConfig | None = None
         self.services: SharedServices | None = None
+        self._dsh_service: DSHService | None = None
+        self._engine_packages: EnginePackages | None = None
+        self._execution_service: ExecutionService | None = None
+        self._platform_collaboration: PlatformCollaboration | None = None
         self.app_runtime: AppRuntime | None = None
         self.expert_catalog: ExpertCatalog | None = None
         self.subagent_catalog: SubagentCatalog | None = None
@@ -263,6 +295,57 @@ class OctopServer:
         self._ldap_bind_throttle_services: SharedServices | None = None
 
     # Backward compat: expose user_manager directly
+    @property
+    def engine_packages(self) -> EnginePackages:
+        if self._engine_packages is None:
+            self._engine_packages = EnginePackages(
+                self._home, self.dsh_service, self._assert_plugins_idle
+            )
+        return self._engine_packages
+
+    @property
+    def platform_collaboration(self) -> PlatformCollaboration:
+        if self.services is None:
+            raise RuntimeError("Platform collaboration requires a started server")
+        if self._platform_collaboration is None:
+            self._platform_collaboration = PlatformCollaboration(self.services)
+        return self._platform_collaboration
+
+    @property
+    def execution_service(self) -> ExecutionService:
+        if self.services is None or self.app_runtime is None:
+            raise RuntimeError("Execution service requires a started server")
+        if self._execution_service is None:
+            gateway = self.app_runtime.gateway
+            self._execution_service = ExecutionService(
+                self.paths.root,
+                self.services.repos,
+                {
+                    "native": NativeEngine(
+                        self.app_runtime.agent_registry, gateway.processor, gateway.thread_registry
+                    ),
+                    "dsh": DSHEngine(self.dsh_service),
+                },
+            )
+        return self._execution_service
+
+    @property
+    def dsh_service(self) -> DSHService:
+        from octop.infra.agents.settings.acp import ACPSettingsStore
+
+        if self.services is None:
+            raise RuntimeError("DSH requires a started server")
+        if self._dsh_service is None:
+            self._dsh_service = DSHService(
+                self.paths.root,
+                ACPSettingsStore(
+                    settings_repo=self.services.settings_repo,
+                    agents_repo=self.services.agent_repo,
+                    home=self.paths.root,
+                ),
+            )
+        return self._dsh_service
+
     @property
     def user_manager(self) -> UserManager | None:
         return self.app_runtime.user_manager if self.app_runtime else None
@@ -326,7 +409,21 @@ class OctopServer:
     async def start(self) -> None:
         if self._started:
             return
-        self.paths.ensure_root()
+        self.startup_progress = StartupProgress()
+        self.startup_progress.mark("starting")
+        try:
+            await self._start()
+        except BaseException as exc:
+            self.startup_progress.failure = type(exc).__name__
+            self.startup_progress.mark("failed")
+            self._close_logging()
+            raise
+        self.startup_progress.ready = True
+        self.startup_progress.mark("ready")
+
+    async def _start(self) -> None:
+        await asyncio.get_running_loop().run_in_executor(None, migrate_local_files, self.paths)
+        self.startup_progress.mark("local_migration")
         # fnOS/容器内非 root 用户场景：把用户级 npm 全局 bin 目录（~/.npm-global）
         # 纳入进程 PATH，保证连接器 CLI（wecom-cli / lark-cli）可被检测与调用。
         from octop.infra.connectors.gateway.cli_install import ensure_cli_path  # noqa: PLC0415
@@ -338,6 +435,7 @@ class OctopServer:
         self._setup_logging()
         config = ensure_mobile_capabilities_probed(self.paths.config)
         self.config = config
+        self.startup_progress.mark("configuration")
 
         self.expert_catalog = ExpertCatalog(
             default_library_root(),
@@ -350,9 +448,11 @@ class OctopServer:
         self.plugin_manager = PluginManager(
             plugins_dir=self.paths.plugins_dir,
             config_path=self.paths.config,
+            assert_idle=self._assert_plugins_idle,
         )
         self.plugin_manager.seed_bundled()
         self.plugin_manager.load_installed(install_deps=True)
+        self.startup_progress.mark("catalogs_plugins")
 
         import time  # noqa: PLC0415
 
@@ -366,9 +466,13 @@ class OctopServer:
 
         db = open_database(config, self.paths)
         run_migrations(db)
+        self.startup_progress.mark("database_migration")
         self.services = build_shared_services(db=db, paths=self.paths, config=config)
         from octop.infra.auth.captcha import boot_from_services  # noqa: PLC0415
 
+        await asyncio.get_running_loop().run_in_executor(
+            None, migrate_agent_paths, self.services, self.paths
+        )
         boot_from_services(self.services.settings_repo, self.services.secret_repo)
         self._ensure_jwt_secret()
         await self._boot_runtime(config)
@@ -396,6 +500,9 @@ class OctopServer:
         self.services = build_shared_services(db=db, paths=self.paths, config=config)
         from octop.infra.auth.captcha import boot_from_services  # noqa: PLC0415
 
+        await asyncio.get_running_loop().run_in_executor(
+            None, migrate_agent_paths, self.services, self.paths
+        )
         boot_from_services(self.services.settings_repo, self.services.secret_repo)
         self._ensure_jwt_secret()
         await self._boot_runtime(config)
@@ -519,11 +626,14 @@ class OctopServer:
         )
         registry.set_proactive_scheduler(proactive_scheduler)
 
+        self.startup_progress.mark("runtime_assembled")
         await registry.boot()
+        self.startup_progress.mark("agents_restored")
         await gateway.refresh_media_backends()
 
         user_mgr = UserManager(self.services)
         await user_mgr.boot()
+        self.startup_progress.mark("users_loaded")
         await proactive_scheduler.start_all()
 
         from octop.infra.auth.tokens import sign_token
@@ -596,7 +706,7 @@ class OctopServer:
                 "║  Octop first-run wizard password (one-time use):          ║\n"
                 f"║  {new_pw:<54}  ║\n"
                 "║  Open the dashboard and paste it into the setup wizard.  ║\n"
-                "║  File: ~/octop-login.txt                                   ║\n"
+                "║  File: ~/xfriend-login.txt                                   ║\n"
                 "╚══════════════════════════════════════════════════════════╝"
                 "\033[0m\n"
             )
@@ -608,8 +718,17 @@ class OctopServer:
 
     async def stop(self) -> None:
         if not self._started:
+            self._close_logging()
             return
+        self.startup_progress.ready = False
+        self.startup_progress.mark("stopping")
         try:
+            if self._execution_service is not None:
+                await self._execution_service.shutdown()
+            if self._dsh_service is not None:
+                await self._dsh_service.shutdown()
+            if self._platform_collaboration is not None:
+                await self._platform_collaboration.shutdown()
             from octop.infra.connectors.gateway import agently_auth
 
             await agently_auth.close()
@@ -629,19 +748,24 @@ class OctopServer:
             if self.services is not None:
                 self.services.db.close()
             self.services = None
+            self._dsh_service = None
+            self._execution_service = None
+            self._platform_collaboration = None
             self.app_runtime = None
             self._started = False
             logger.info("octop server stopped")
+            self._close_logging()
 
     # ----- helpers -----
 
     def _setup_logging(self) -> None:
+        self._close_logging()
         log_dir = self.paths.logs_dir
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = self.paths.log
 
-        # Migrate the legacy single-file log (~/.octop/octop.log) into the new logs dir.
-        legacy = self.paths.root / "octop.log"
+        # Migrate the legacy single-file log (~/.xfriend/xfriend.log) into the new logs dir.
+        legacy = self.paths.root / "xfriend.log"
         if legacy.exists() and not log_path.exists():
             with suppress(OSError):
                 legacy.replace(log_path)
@@ -660,10 +784,14 @@ class OctopServer:
         delaycompress_rotated_logs(log_dir, enabled=compress_rotated)
 
         root = logging.getLogger()
-        _attach_log_handler(root, handler)
+        self._logging_handler = handler
+        if _attach_log_handler(root, handler):
+            self._logging_targets.append(root)
         # Persist framework (uvicorn) request/error logs into the same file too.
         for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
-            _attach_log_handler(logging.getLogger(name), handler)
+            target = logging.getLogger(name)
+            if _attach_log_handler(target, handler):
+                self._logging_targets.append(target)
 
         level = os.environ.get("OCTOP_LOG_LEVEL", "info").upper()
         root.setLevel(getattr(logging, level, logging.INFO))
@@ -672,6 +800,16 @@ class OctopServer:
             # secrets (OAuth access_token, corpsecret) into the log file.
             logging.getLogger("httpx").setLevel(logging.WARNING)
             logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+    def _close_logging(self) -> None:
+        handler = self._logging_handler
+        if handler is None:
+            return
+        for target in self._logging_targets:
+            target.removeHandler(handler)
+        handler.close()
+        self._logging_targets.clear()
+        self._logging_handler = None
 
     def _ensure_jwt_secret(self) -> None:
         assert self.services is not None

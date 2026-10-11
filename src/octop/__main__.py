@@ -5,4 +5,4 @@ from __future__ import annotations
 from octop.cli.main import cli
 
 if __name__ == "__main__":
-    cli()
+    cli(prog_name="xfriend")

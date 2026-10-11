@@ -14,7 +14,7 @@ from octop.cli.main import cli
 
 @pytest.fixture
 def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    octop_home = tmp_path / ".octop"
+    octop_home = tmp_path / ".xfriend"
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("OCTOP_HOME", str(octop_home))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
@@ -38,19 +38,19 @@ def test_init_non_interactive_creates_admin(fake_home: Path) -> None:
         ],
     )
     assert result.exit_code == 0, result.output
-    assert (fake_home / ".octop").is_dir()
-    assert (fake_home / ".octop" / "octop.db").is_file()
+    assert (fake_home / ".xfriend").is_dir()
+    assert (fake_home / ".xfriend" / "xfriend.db").is_file()
     # New catalog plugins are installed via the marketplace, not auto-seeded.
-    weather = fake_home / ".octop" / "plugins" / "weather" / "plugin.yaml"
+    weather = fake_home / ".xfriend" / "plugins" / "weather" / "plugin.yaml"
     assert not weather.is_file()
-    cfg = json.loads((fake_home / ".octop" / "config.json").read_text(encoding="utf-8"))
+    cfg = json.loads((fake_home / ".xfriend" / "config.json").read_text(encoding="utf-8"))
     assert "weather" not in (cfg.get("plugins") or {})
 
     from octop.infra.db.pool import SqlitePool
     from octop.infra.db.repos.users import UserRepo
     from octop.infra.utils.paths import PathLayout
 
-    paths = PathLayout(fake_home / ".octop")
+    paths = PathLayout(fake_home / ".xfriend")
     db = SqlitePool(paths.db)
     row = UserRepo(db).get_by_username("alice")
     assert row is not None
@@ -58,10 +58,10 @@ def test_init_non_interactive_creates_admin(fake_home: Path) -> None:
 
 
 def test_init_allows_sidecar_files_without_database(fake_home: Path) -> None:
-    """NAS / Docker shares often have login.txt before the first octop.db exists."""
-    home = fake_home / ".octop"
+    """NAS / Docker shares often have login.txt before the first xfriend.db exists."""
+    home = fake_home / ".xfriend"
     home.mkdir()
-    (home / "octop-login.txt").write_text("placeholder\n", encoding="utf-8")
+    (home / "xfriend-login.txt").write_text("placeholder\n", encoding="utf-8")
     runner = CliRunner()
     result = runner.invoke(
         cli,
@@ -75,8 +75,8 @@ def test_init_allows_sidecar_files_without_database(fake_home: Path) -> None:
         ],
     )
     assert result.exit_code == 0, result.output
-    assert (home / "octop.db").is_file()
-    assert (home / "octop-login.txt").read_text(encoding="utf-8") == "placeholder\n"
+    assert (home / "xfriend.db").is_file()
+    assert (home / "xfriend-login.txt").read_text(encoding="utf-8") == "placeholder\n"
 
 
 def test_init_refuses_to_overwrite_without_force(fake_home: Path) -> None:
@@ -127,7 +127,7 @@ def test_init_force_resets(fake_home: Path) -> None:
     from octop.infra.db.repos.users import UserRepo
     from octop.infra.utils.paths import PathLayout
 
-    paths = PathLayout(fake_home / ".octop")
+    paths = PathLayout(fake_home / ".xfriend")
     repo = UserRepo(SqlitePool(paths.db))
     assert repo.get_by_username("bob") is not None
 
@@ -153,6 +153,6 @@ def test_init_env_vars_supply_credentials(fake_home: Path, monkeypatch: pytest.M
     from octop.infra.db.repos.users import UserRepo
     from octop.infra.utils.paths import PathLayout
 
-    paths = PathLayout(fake_home / ".octop")
+    paths = PathLayout(fake_home / ".xfriend")
     repo = UserRepo(SqlitePool(paths.db))
     assert repo.get_by_username("fromenv") is not None

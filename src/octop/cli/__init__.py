@@ -1,1 +1,1 @@
-"""octop CLI package."""
+"""xfriend CLI package."""

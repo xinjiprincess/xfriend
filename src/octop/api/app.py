@@ -78,7 +78,7 @@ def _install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(OctopError)
     async def _octop(request: Request, exc: OctopError) -> JSONResponse:
         # Client responses are locale-localized; log the original English message
-        # so INTERNAL_ERROR (and other 5xx) remain diagnosable in ~/.octop/logs.
+        # so INTERNAL_ERROR (and other 5xx) remain diagnosable in ~/.xfriend/logs.
         if exc.status >= 500:
             logger.error(
                 "OctopError %s in %s: %s",
@@ -107,7 +107,7 @@ def build_app(server: OctopServer) -> FastAPI:
     )
 
     app = FastAPI(
-        title="Octop API",
+        title="Singu Xfriend API",
         version="0.1.0",
         description=API_DESCRIPTION,
         openapi_url="/api/openapi.json" if enable_api_docs else None,
@@ -131,7 +131,7 @@ def build_app(server: OctopServer) -> FastAPI:
 
     from octop.api.middleware.bridge_proxy import install as install_bridge_proxy
 
-    # Bridge proxy must sit inside JWT auth so ``request.state.octop_user`` is set
+    # Bridge proxy must sit inside JWT auth so ``request.state.xfriend_user`` is set
     # (Starlette runs the last-added middleware first).
     install_bridge_proxy(app, server)
     install_jwt_auth(app, server)
@@ -174,7 +174,9 @@ def build_app(server: OctopServer) -> FastAPI:
         connectors,
         cron,
         desktop,
+        engines,
         envs,
+        execution,
         experts,
         health,
         i18n,
@@ -188,6 +190,7 @@ def build_app(server: OctopServer) -> FastAPI:
         mobile,
         ollama_models,
         onnx_models,
+        platform_collaboration,
         plugins,
         preferences,
         proactive_care,
@@ -236,6 +239,9 @@ def build_app(server: OctopServer) -> FastAPI:
             _RouterMount(agents.router, "/api/agents", ["agents"]),
             _RouterMount(agent_tools.router, "/api", ["agents"]),
             _RouterMount(acp.router, "/api", ["agents"]),
+            _RouterMount(engines.router, "/api", ["agents"]),
+            _RouterMount(execution.router, "/api", ["agents"]),
+            _RouterMount(platform_collaboration.router, "/api", ["connectors"]),
             _RouterMount(chat.router, "/api", ["chat"]),
             _RouterMount(slash.router, "/api", ["slash"]),
             _RouterMount(connectors.router, "/api", ["connectors"]),
@@ -304,7 +310,7 @@ def build_app(server: OctopServer) -> FastAPI:
         async def api_docs() -> HTMLResponse:
             return get_scalar_api_reference(
                 openapi_url=app.openapi_url,
-                title="Octop API",
+                title="Singu Xfriend API",
             )
 
     if enable_dashboard:

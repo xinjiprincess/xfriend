@@ -1,4 +1,4 @@
-"""Environment variables API — backed by ``~/.octop/env`` (inherited by all agents)."""
+"""Environment variables API — backed by ``~/.xfriend/env`` (inherited by all agents)."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ async def list_envs(
     "",
     summary="Replace global environment variables",
     description=(
-        "Overwrite ~/.octop/env and align the Octop process environment "
+        "Overwrite ~/.xfriend/env and align the Octop process environment "
         "(including deleting keys removed from the list). Running execute "
         "shells and Docker sandboxes pick up keys on the next command without "
         "an agent reload. Agents reload in the background only when search "
@@ -114,7 +114,7 @@ async def batch_save_envs(
 @router.delete(
     "/{key}",
     summary="Delete one global environment variable",
-    description="Remove a key from ~/.octop/env and the process environment.",
+    description="Remove a key from ~/.xfriend/env and the process environment.",
 )
 async def delete_env(
     key: str,

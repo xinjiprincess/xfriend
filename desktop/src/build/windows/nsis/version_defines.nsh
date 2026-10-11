@@ -1,0 +1,2 @@
+!define INFO_PRODUCTVERSION "1.4.0"
+!define INFO_FILEVERSION "1.4.0.0"

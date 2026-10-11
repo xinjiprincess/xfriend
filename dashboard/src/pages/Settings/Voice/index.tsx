@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Divider, Drawer, Form, Input, Select, Typography } from "antd";
+import {
+  Button,
+  Divider,
+  Drawer,
+  Form,
+  Input,
+  Select,
+  Typography,
+  Upload,
+} from "antd";
 import { message } from "@/utils/antdMessage";
 
 import { Activity, Mic2, Check, Settings2 } from "lucide-react";
@@ -41,6 +50,8 @@ export function VoiceSettingsPanel() {
     "payg",
   );
   const [mimoVoiceId, setMimoVoiceId] = useState("冰糖");
+  const [voiceDescription, setVoiceDescription] = useState("");
+  const [voiceSample, setVoiceSample] = useState("");
   const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);
 
@@ -49,7 +60,7 @@ export function VoiceSettingsPanel() {
     try {
       const [presetList, rows, activeVoice] = await Promise.all([
         voiceApi.getPresets(),
-        voiceApi.getProviders(),
+        voiceApi.adminListProviders(),
         voiceApi.getActive(),
       ]);
       setPresets(presetList);
@@ -103,6 +114,8 @@ export function VoiceSettingsPanel() {
     setSecretKey(String(extra.secret_key ?? ""));
     setMimoEndpoint(extra.endpoint_type === "tokenplan" ? "tokenplan" : "payg");
     setMimoVoiceId(String(extra.voice_id ?? "冰糖"));
+    setVoiceDescription(String(extra.voice_description ?? ""));
+    setVoiceSample(String(extra.voice_sample ?? ""));
   };
 
   const buildProviderPayload = (): VoiceProviderInput | null => {
@@ -126,6 +139,14 @@ export function VoiceSettingsPanel() {
       extra = {
         endpoint_type: mimoEndpoint,
         voice_id: preset.capability === "tts" ? mimoVoiceId : undefined,
+        tts_model:
+          preset.id === "mimo-voicedesign"
+            ? "mimo-v2.5-tts-voicedesign"
+            : preset.id === "mimo-voiceclone"
+            ? "mimo-v2.5-tts-voiceclone"
+            : "mimo-v2.5-tts",
+        voice_description: voiceDescription,
+        voice_sample: preset.id === "mimo-voiceclone" ? voiceSample : undefined,
       };
     } else {
       extra = { model: preset.kind === "openai" ? "whisper-1" : undefined };
@@ -146,6 +167,14 @@ export function VoiceSettingsPanel() {
   };
 
   const validateCredentials = () => {
+    if (
+      (configure?.preset.id === "mimo-voicedesign" &&
+        !voiceDescription.trim()) ||
+      (configure?.preset.id === "mimo-voiceclone" && !voiceSample)
+    ) {
+      message.warning(t("voice.voiceInputRequired"));
+      return false;
+    }
     if (!configure?.preset.requires_key) return true;
     const complete =
       configure.preset.kind === "tencent"
@@ -471,7 +500,54 @@ export function VoiceSettingsPanel() {
                   onChange={(e) => setApiKey(e.target.value)}
                 />
               </Form.Item>
-              {configure.preset.capability === "tts" && (
+              {configure.preset.id === "mimo-voicedesign" && (
+                <Form.Item label={t("voice.voiceDescription")} required>
+                  <Input.TextArea
+                    rows={4}
+                    value={voiceDescription}
+                    maxLength={4000}
+                    onChange={(e) => setVoiceDescription(e.target.value)}
+                    placeholder={t("voice.voiceDescriptionHint")}
+                  />
+                </Form.Item>
+              )}
+              {configure.preset.id === "mimo-voiceclone" && (
+                <Form.Item label={t("voice.voiceSample")} required>
+                  <Upload
+                    accept=".wav,.mp3"
+                    showUploadList={false}
+                    beforeUpload={async (file) => {
+                      if (
+                        !/\.(wav|mp3)$/i.test(file.name) ||
+                        file.size > 7 * 1024 * 1024
+                      ) {
+                        message.error(t("voice.voiceSampleHint"));
+                        return false;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const data = String(reader.result).split(",")[1];
+                        const mime = /\.wav$/i.test(file.name)
+                          ? "audio/wav"
+                          : "audio/mpeg";
+                        setVoiceSample(`data:${mime};base64,${data}`);
+                      };
+                      reader.readAsDataURL(file);
+                      return false;
+                    }}
+                  >
+                    <Button>
+                      {t(
+                        voiceSample
+                          ? "voice.replaceSample"
+                          : "voice.uploadSample",
+                      )}
+                    </Button>
+                  </Upload>
+                  <Text type="secondary">{t("voice.voiceSampleHint")}</Text>
+                </Form.Item>
+              )}
+              {configure.preset.id === "mimo-tts" && (
                 <Form.Item label={t("voice.mimoVoice")}>
                   <Select
                     value={mimoVoiceId}

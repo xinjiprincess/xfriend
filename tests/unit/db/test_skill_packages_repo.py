@@ -15,7 +15,7 @@ _MIGRATIONS = Path(__file__).resolve().parents[3] / "src/octop/infra/db/migratio
 
 @pytest.fixture
 def db(tmp_path: Path) -> SqlitePool:
-    pool = SqlitePool(tmp_path / "octop.db")
+    pool = SqlitePool(tmp_path / "xfriend.db")
     run_migrations(pool)
     return pool
 
@@ -50,10 +50,12 @@ def test_skill_package_repo_create_get(db: SqlitePool) -> None:
 
 
 def test_legacy_text_pk_skill_packages_keep_public_id(tmp_path: Path) -> None:
-    pool = SqlitePool(tmp_path / "octop.db")
+    pool = SqlitePool(tmp_path / "xfriend.db")
     with pool.connect() as conn:
-        conn.executescript((_MIGRATIONS / "001_initial.sql").read_text())
-        conn.executescript((_MIGRATIONS / "002_cron_mcp_and_skill_packages.sql").read_text())
+        conn.executescript((_MIGRATIONS / "001_initial.sql").read_text(encoding="utf-8"))
+        conn.executescript(
+            (_MIGRATIONS / "002_cron_mcp_and_skill_packages.sql").read_text(encoding="utf-8")
+        )
         conn.execute(
             "INSERT INTO skill_packages("
             "id, name, description, created_by, skill_count, icon_name, icon_url, "

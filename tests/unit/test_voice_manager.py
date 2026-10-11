@@ -13,11 +13,28 @@ from octop.infra.db.repos.voice_providers import VoiceProviderRepo, VoiceProvide
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.voice import adapters
 from octop.infra.voice.manager import VoiceManager
+from octop.infra.voice.preferences import (
+    AssistantVoicePreferences,
+    load_preferences,
+    save_preferences,
+)
+
+
+def test_assistant_voice_preferences_are_user_scoped(voice_mgr: VoiceManager) -> None:
+    preferences = AssistantVoicePreferences(
+        tts="edge", voice_id="zh-CN-XiaoxiaoNeural", auto_read=True
+    )
+    save_preferences(voice_mgr, 7, preferences)
+    assert load_preferences(voice_mgr, 7) == preferences
+    assert load_preferences(voice_mgr, 8) == AssistantVoicePreferences()
+    with pytest.raises(OctopError):
+        save_preferences(voice_mgr, 7, AssistantVoicePreferences(stt="edge"))
+    assert load_preferences(voice_mgr, 7) == preferences
 
 
 @pytest.fixture
 def voice_mgr(tmp_path: Path) -> VoiceManager:
-    db = SqlitePool(tmp_path / "octop.db")
+    db = SqlitePool(tmp_path / "xfriend.db")
     run_migrations(db)
     settings = SettingsRepo(db)
     repo = VoiceProviderRepo(db)

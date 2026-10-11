@@ -86,13 +86,13 @@ tasks:
       - cmd: python3 "{{.ROOT_DIR}}/build/stamp_version.py" nsis-defines "{{.VERSION}}" version_defines.nsh
         platforms: [linux, darwin]
       - cmd: >-
-          makensis
+          makensis /INPUTCHARSET UTF8
           -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe"
           -DINSTALLER_OUTFILE="{{.ROOT_DIR}}\{{.ARCHIVE}}"
           project.nsi
         platforms: [windows]
       - cmd: >-
-          makensis
+          makensis /INPUTCHARSET UTF8
           -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe"
           -DINSTALLER_OUTFILE="{{.ROOT_DIR}}/{{.ARCHIVE}}"
           project.nsi

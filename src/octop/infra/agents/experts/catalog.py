@@ -2,7 +2,7 @@
 
 An *expert* is metadata in ``manifest.json`` plus files on disk under
 ``library/<id>/``. At seed time files (including a copy of ``manifest.json``)
-are written into the agent workspace under ``.octop/manifest.json``.
+are written into the agent workspace under ``.xfriend/manifest.json``.
 ``prompt_files`` in the manifest is metadata for the dashboard only — persona
 text is read from the workspace. ``task_examples`` is an optional locale-keyed
 string array shown as empty-state cards on the tasks page.
@@ -30,7 +30,7 @@ MANIFEST_FILENAME = "manifest.json"
 """Expert template / published-snapshot welcome metadata filename (dir root)."""
 
 WORKSPACE_MANIFEST_PATH = f"{DEFAULT_SYSTEM_FILES_PATH}/{MANIFEST_FILENAME}"
-"""Agent-workspace path for welcome metadata (under ``.octop/``)."""
+"""Agent-workspace path for welcome metadata (under ``.xfriend/``)."""
 
 # Prefer system path; keep root ``manifest.json`` readable for pre-migration agents.
 _WORKSPACE_MANIFEST_READ_PATHS = (WORKSPACE_MANIFEST_PATH, MANIFEST_FILENAME)
@@ -241,7 +241,7 @@ async def seed_expert_directory(
 
 
 async def read_workspace_manifest_text(workspace: BackendWorkspace) -> str | None:
-    """Read welcome manifest text from the agent workspace (``.octop`` then legacy root)."""
+    """Read welcome manifest text from the agent workspace (``.xfriend`` then legacy root)."""
     for rel in _WORKSPACE_MANIFEST_READ_PATHS:
         text = await workspace.aread_text(rel)
         if text is not None and str(text).strip():
@@ -250,7 +250,7 @@ async def read_workspace_manifest_text(workspace: BackendWorkspace) -> str | Non
 
 
 async def read_workspace_manifest_bytes(workspace: BackendWorkspace) -> bytes | None:
-    """Read welcome manifest bytes from the agent workspace (``.octop`` then legacy root)."""
+    """Read welcome manifest bytes from the agent workspace (``.xfriend`` then legacy root)."""
     for rel in _WORKSPACE_MANIFEST_READ_PATHS:
         raw = await workspace.adownload_bytes(rel)
         if raw is not None and raw.strip():
@@ -347,7 +347,7 @@ def default_welcome_payload(catalog: ExpertCatalog | None = None) -> dict[str, A
 async def read_workspace_manifest_data(
     workspace: BackendWorkspace,
 ) -> dict[str, Any] | None:
-    """Parse workspace ``.octop/manifest.json`` (legacy root fallback) as a dict."""
+    """Parse workspace ``.xfriend/manifest.json`` (legacy root fallback) as a dict."""
     text = await read_workspace_manifest_text(workspace)
     if text is None:
         return None
@@ -362,7 +362,7 @@ async def read_workspace_manifest_data(
 async def read_workspace_manifest_welcome(
     workspace: BackendWorkspace,
 ) -> dict[str, Any] | None:
-    """Parse workspace welcome manifest (``.octop/manifest.json``), if present and valid."""
+    """Parse workspace welcome manifest (``.xfriend/manifest.json``), if present and valid."""
     data = await read_workspace_manifest_data(workspace)
     if data is None:
         return None
@@ -388,7 +388,7 @@ async def apply_workspace_quick_prompts(
     workspace: BackendWorkspace,
     quick_prompts: list[dict[str, Any]],
 ) -> None:
-    """Merge installer-owned quick-start cards into workspace ``.octop/manifest.json``.
+    """Merge installer-owned quick-start cards into workspace ``.xfriend/manifest.json``.
 
     Missing file starts from ``{}``. Invalid JSON is refused so a hand-edited
     manifest is not clobbered during create.

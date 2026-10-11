@@ -1,5 +1,36 @@
 # Octop 绿色便携包（多平台）
 
+## Singu Xfriend Windows x64 完整包
+
+Windows x64 完整包现在必须包含固定版本的 DSH/Node 和导出浏览器。
+先准备带 `engine.json` 的已物化 DSH 运行目录及 Playwright 浏览器目录，
+再运行以下命令。构建工具需要 `uv`、Git Bash、Node/npm、Go、
+与 `go.mod` 对应的 Wails CLI，以及 NSIS；不依赖开发者个人工具目录。
+
+```powershell
+./scripts/build_xfriend_windows.ps1 `
+  -DshDirectory D:/build-inputs/dsh `
+  -BrowsersDirectory D:/build-inputs/browsers `
+  -OutputDirectory D:/releases/xfriend-new
+```
+
+输出目录必须不存在，避免覆盖先前版本。脚本构建前端、准备便携 Python、
+安装锁定依赖、生成便携包和桌面安装包，并输出 SHA256SUMS。
+DSH 上游提交必须是完整 SHA，组件必须无符号链接；构建中会校验全部组件文件。
+组件清单随包保存，记录上游提交、版本与逐文件摘要。此流程不自动追随 DSH 主分支，
+也不代表候选上游版本已通过真实工具验收。
+
+也可以单独准备组件后调用已有便携包脚本：
+
+```powershell
+uv run python scripts/desktop_components.py stage --dsh D:/build-inputs/dsh --browsers D:/build-inputs/browsers --output D:/build-inputs/verified
+$env:XFRIEND_COMPONENTS_DIR = 'D:/build-inputs/verified'
+bash desktop/portable/package.sh windows-amd64
+```
+
+此强制组件检查当前仅用于 Windows x64；其他平台维持原便携包流程，
+不宣称已经包含完整的 DSH 与离线导出组件。
+
 解压即用：内置便携 CPython + Octop 及依赖，通过 `start.sh` / `start.bat` 启动。  
 **不依赖**系统 Python，也**不包含** Wails / 桌面壳——用浏览器打开 Dashboard。  
 首启走上游正常 setup wizard（本目录**不含** OOB / UI 裁剪）。

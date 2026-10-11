@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response
 
 from octop.api.common.agent import require_agent_row
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
+from octop.api.common.documents import DocumentPreview, DocumentSelection
 from octop.api.deps import current_user, get_server
 from octop.api.routers.chat.models import ForkThreadBody, RebindSessionBody, RenameThreadBody
 from octop.api.routers.chat.serialize import (
@@ -27,12 +29,76 @@ from octop.infra.agents.workspace.dir import agent_facing_workspace_dir_from_con
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.hitl.coordinator import pending_hitl_payload
 from octop.infra.gateway.threads import ThreadRegistry, thread_row_has_messages
+from octop.infra.history.documents import (
+    history_digest,
+    normalize_messages,
+    render_document,
+    select_messages,
+)
 from octop.infra.history.service import HistoryArchive
 from octop.infra.history.trajectory.service import TrajectoryService
 from octop.infra.utils.locale import resolve_request_locale
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+async def _document_messages(server: Any, agent_id: str, thread_id: str) -> list[Any]:
+    from octop.infra.history.reader import export_messages
+
+    archive = getattr(server.app_runtime, "history_archive", None)
+    if not isinstance(archive, HistoryArchive):
+        raise OctopError(ErrorCode.NOT_FOUND, "History archive is unavailable")
+    return normalize_messages(
+        await export_messages(archive, server.app_runtime.agent_registry, agent_id, thread_id)
+    )
+
+
+@router.get(
+    "/agents/{agent_id}/threads/{thread_id}/document-preview",
+    response_model=DocumentPreview,
+    summary="Preview all messages for section export",
+)
+async def document_preview(
+    agent_id: str,
+    thread_id: str,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> Any:
+    _require_thread(server, agent_id, thread_id, user, None)
+    messages = await _document_messages(server, agent_id, thread_id)
+    return {"digest": history_digest(messages), "messages": messages}
+
+
+@router.post(
+    "/agents/{agent_id}/threads/{thread_id}/document",
+    summary="Export a conversation section as PDF, HTML, DOCX or PNG pages",
+    description="Read-only export with ownership validation. PNG pages are returned in a ZIP archive.",
+)
+async def export_document(
+    request: Request,
+    agent_id: str,
+    thread_id: str,
+    body: DocumentSelection,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> Response:
+    row = _require_thread(server, agent_id, thread_id, user, None)
+    messages = await _document_messages(server, agent_id, thread_id)
+    if history_digest(messages) != body.digest:
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, "History changed; refresh the export preview")
+    try:
+        selection = select_messages(messages, body.mode, body.indices, body.start, body.end)
+    except ValueError as exc:
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, str(exc)) from exc
+    data, mime, extension = await render_document(
+        selection, row.title or "Singu Xfriend", body.format, resolve_request_locale(request)
+    )
+    return Response(
+        data,
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="conversation.{extension}"'},
+    )
 
 
 def _agent_is_busy(server: Any, agent_id: str) -> bool:

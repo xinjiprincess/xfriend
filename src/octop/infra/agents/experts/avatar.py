@@ -13,7 +13,7 @@ from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.media.attachment_hints import sniff_image_media_type
 
 MAX_AVATAR_BYTES = 5 * 1024 * 1024
-AVATAR_DIR = ".octop"
+AVATAR_DIR = ".xfriend"
 _AVATAR_NAMES: tuple[str, ...] = (
     "avatar.png",
     "avatar.jpg",
@@ -122,7 +122,7 @@ async def delete_workspace_avatar(workspace: WorkspaceAvatarIO) -> None:
 
 
 async def copy_workspace_avatar_to_dir(workspace: WorkspaceAvatarIO, dest: Path) -> str | None:
-    """Write the current avatar into a snapshot directory as ``.octop/avatar.*``."""
+    """Write the current avatar into a snapshot directory as ``.xfriend/avatar.*``."""
     found = await read_workspace_avatar(workspace)
     if found is None:
         return None
@@ -135,7 +135,7 @@ async def copy_workspace_avatar_to_dir(workspace: WorkspaceAvatarIO, dest: Path)
 
 
 def read_snapshot_avatar(snapshot_dir: Path) -> tuple[bytes, str] | None:
-    """Load ``.octop/avatar.*`` (or legacy root ``avatar.*``) from a published snapshot."""
+    """Load ``.xfriend/avatar.*`` (or legacy root ``avatar.*``) from a published snapshot."""
     for relpath in _ALL_AVATAR_RELPATHS:
         path = snapshot_dir.joinpath(*PurePosixPath(relpath).parts)
         if not path.is_file():

@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>小星助手</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #fff;
+        color: #17204b;
+        font:
+          14px "Microsoft YaHei",
+          sans-serif;
+        overflow: hidden;
+      }
+      header {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 12px;
+        --wails-draggable: drag;
+      }
+      button,
+      input {
+        font: inherit;
+        --wails-draggable: no-drag;
+      }
+      button {
+        border: 0;
+        background: #edf2ff;
+        color: #3156d9;
+        border-radius: 10px;
+        cursor: pointer;
+        padding: 6px 10px;
+      }
+      #star {
+        display: block;
+        margin: 6px auto;
+        width: 110px;
+        height: 110px;
+        object-fit: contain;
+        cursor: pointer;
+        animation: float 3s ease-in-out infinite;
+      }
+      body[data-state="awake"] #star {
+        animation: awake 0.55s ease-in-out infinite alternate;
+      }
+      body[data-state="busy"] #star {
+        animation: think 1.3s ease-in-out infinite;
+      }
+      #status {
+        text-align: center;
+        font-size: 12px;
+        color: #66729a;
+        margin: 4px 8px;
+      }
+      .expanded #star {
+        width: 70px;
+        height: 70px;
+        margin: 0 auto;
+      }
+      #panel {
+        display: none;
+      }
+      .expanded #panel {
+        display: block;
+      }
+      #voice {
+        padding: 6px 12px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      #word {
+        width: 100px;
+        padding: 6px;
+        border: 1px solid #ccd5ee;
+        border-radius: 8px;
+      }
+      #note {
+        margin: 4px 12px;
+        font-size: 11px;
+        color: #737b91;
+      }
+      iframe {
+        width: 100%;
+        height: 470px;
+        border: 0;
+      }
+      #main,
+      #collapse {
+        display: none;
+      }
+      .expanded #main,
+      .expanded #collapse {
+        display: inline-block;
+      }
+      .expanded #expand {
+        display: none;
+      }
+      @keyframes float {
+        50% {
+          transform: translateY(-6px) rotate(3deg);
+        }
+      }
+      @keyframes awake {
+        to {
+          transform: translateY(-5px) scale(1.08) rotate(-5deg);
+        }
+      }
+      @keyframes think {
+        50% {
+          transform: scale(0.92) rotate(7deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #star {
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body data-state="idle">
+    <header>
+      <span>小星</span>
+      <div>
+        <button id="main" title="主窗口">主窗口</button>
+        <button id="collapse" title="收起">−</button
+        ><button id="expand" title="展开">＋</button>
+        <button id="hide" title="关闭助手并停止监听">×</button>
+      </div>
+    </header>
+    <img
+      id="star"
+      src="/xfriend-icon.png"
+      alt="展开小星助手"
+      draggable="false"
+    />
+    <p id="status">点击星星，和我聊聊</p>
+    <div id="panel">
+      <div id="voice">
+        <label for="word">唤醒词</label
+        ><input id="word" value="小星" maxlength="20" /><button id="mic">
+          开启语音唤醒
+        </button>
+      </div>
+      <p id="note">本地识别；先说唤醒词，停顿后说指令。关闭助手即停止监听。</p>
+      <button id="assistant-settings">助手与声音设置</button>
+      <iframe id="chat" title="智能体对话" allow="microphone"></iframe>
+    </div>
+    <script type="module">
+      import { Call } from "/wails/runtime.js";
+      const call = (name, ...args) => Call.ByName("main.App." + name, ...args);
+      document.querySelector("#assistant-settings").onclick = () => call("OpenAssistantSettings");
+      const star = document.querySelector("#star"),
+        frame = document.querySelector("#chat"),
+        status = document.querySelector("#status"),
+        mic = document.querySelector("#mic"),
+        word = document.querySelector("#word");
+      let serviceVoice = false;
+      let base = "",
+        expanded = false,
+        listening = false;
+      async function expand(value) {
+        expanded = value;
+        document.body.classList.toggle("expanded", value);
+        await call("ExpandAssistant", value);
+      }
+      function setBase(value) {
+        if (!value) return;
+        base = new URL(value).origin;
+        frame.src = base + "/desktop-assistant";
+      }
+      document.querySelector("#expand").onclick = () => expand(true);
+      star.onclick = () => expand(!expanded);
+      document.querySelector("#collapse").onclick = () => expand(false);
+      document.querySelector("#main").onclick = () => call("ShowMain");
+      document.querySelector("#hide").onclick = () => call("HideAssistant");
+      mic.onclick = async () => {
+        try {
+          if (listening) {
+            await call("StopAssistantVoice");
+            return;
+          }
+          status.textContent = "正在启动麦克风…";
+          mic.disabled = true;
+          frame.contentWindow.postMessage({type: "xfriend:wake-word", word: word.value}, base);
+          await call("StartAssistantVoice", word.value);
+        } catch (e) {
+          status.textContent = String(e);
+        } finally {
+          mic.disabled = false;
+        }
+      };
+      function voice(e) {
+        const v = e.detail;
+        if (v.kind === "ready") {
+          listening = true;
+          word.disabled = true;
+          mic.textContent = "关闭语音唤醒";
+          status.textContent = "麦克风监听中 · 说“" + word.value + "”唤醒";
+          document.body.dataset.state = "idle";
+        }
+        if (v.kind === "wake") {
+          expand(true);
+          document.body.dataset.state = "awake";
+          status.textContent = "我在，请说指令（12 秒内）";
+          frame.contentWindow.postMessage({ type: "xfriend:wake" }, base);
+        }
+        if (v.kind === "command" && !serviceVoice) {
+          frame.contentWindow.postMessage(
+            { type: "xfriend:voice", text: v.text },
+            base,
+          );
+          status.textContent = "已识别：" + v.text;
+        }
+        if (v.kind === "error") {
+          status.textContent =
+            v.text === "missing-recognizer"
+              ? "请在 Windows 语言设置中安装中文语音识别组件"
+              : "无法打开麦克风或语音识别，请检查 Windows 麦克风权限";
+        }
+        if (v.kind === "stopped") {
+          if (base)
+            frame.contentWindow.postMessage(
+              { type: "xfriend:stop-recording" },
+              base,
+            );
+          listening = false;
+          word.disabled = false;
+          mic.textContent = "开启语音唤醒";
+          if (
+            !status.textContent.startsWith("请") &&
+            !status.textContent.startsWith("无法")
+          )
+            status.textContent = "语音唤醒已关闭";
+          document.body.dataset.state = "idle";
+        }
+      }
+      window.addEventListener("assistant:voice", voice);
+      window.addEventListener("assistant:session", (e) => {
+        if (base)
+          frame.contentWindow.postMessage(
+            { type: "xfriend:session", token: e.detail },
+            base,
+          );
+      });
+      window.addEventListener("assistant:base", (e) => setBase(e.detail));
+      window.addEventListener("message", (e) => {
+        if (e.origin !== base || e.source !== frame.contentWindow) return;
+        if (e.data?.type === "xfriend:preferences" && typeof e.data.wakeWord === "string") {
+          word.value = e.data.wakeWord;
+          call("SetAssistantWakeWord", word.value).catch((error) => { status.textContent = String(error); });
+        }
+        if (e.data?.type === "xfriend:voice-mode") {
+          serviceVoice = Boolean(e.data.service);
+          document.querySelector("#note").textContent = serviceVoice
+            ? "本地唤醒；唤醒后录音会发送到已配置的语音服务识别，停止说话后自动发送。"
+            : "本地识别；先说唤醒词，停顿后说指令。关闭助手即停止监听。";
+        }
+        if (e.data?.type === "xfriend:busy")
+          document.body.dataset.state = e.data.busy ? "busy" : "idle";
+        if (e.data?.type === "xfriend:main") {
+          if (
+            typeof e.data.agent === "string" &&
+            typeof e.data.thread === "string"
+          )
+            call("OpenAssistantConversation", e.data.agent, e.data.thread);
+          else call("ShowMain");
+        }
+      });
+      const settings = await call("GetSettings");
+      word.value = settings.wakeWord || "小星";
+      setBase(await call("AssistantBase"));
+    </script>
+  </body>
+</html>

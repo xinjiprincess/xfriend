@@ -8,8 +8,12 @@ from octop.infra.bridge.peer_auth import normalize_peer_base_url
 from octop.infra.errors import ErrorCode, OctopError
 
 
-def test_normalize_accepts_https_host() -> None:
-    assert normalize_peer_base_url("https://demo.octop.chat/") == "https://demo.octop.chat"
+def test_normalize_accepts_https_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "octop.infra.bridge.peer_auth.socket.getaddrinfo",
+        lambda *_: [(2, 1, 6, "", ("203.0.113.7", 0))],
+    )
+    assert normalize_peer_base_url("https://demo.xfriend.chat/") == "https://demo.xfriend.chat"
 
 
 def test_normalize_rejects_metadata_ip() -> None:

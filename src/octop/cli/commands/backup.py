@@ -1,14 +1,21 @@
-"""`octop backup` — export and restore Octop data."""
+"""`xfriend backup` — export and restore Singu Xfriend data."""
 
 from __future__ import annotations
 
+import json
+import sqlite3
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import click
 
+from octop.cli.support.db import resolve_cli_locale
 from octop.config import load_config
+from octop.i18n import tr
 from octop.infra.backup.auto import create_and_store_auto_backup
+from octop.infra.backup.desktop_snapshot import inspect_snapshot, restore_snapshot
 from octop.infra.backup.store import place_backup_file
 from octop.infra.backup.system_archive import create_system_backup, restore_system_backup
 from octop.infra.db.factory import open_database
@@ -26,12 +33,59 @@ def backup() -> None:
     """Backup and restore database + local agent workspaces."""
 
 
+def _snapshot_result(operation: Callable[[], dict[str, Any]]) -> None:
+    key = ""
+    try:
+        result = operation()
+    except FileExistsError:
+        key = "destination_exists"
+    except ValueError as exc:
+        code = str(exc)
+        key = (
+            code
+            if code
+            in {
+                "snapshot_format",
+                "snapshot_checksum",
+                "snapshot_path",
+                "snapshot_target_collision",
+                "snapshot_history_identity",
+            }
+            else "snapshot_format"
+        )
+    except OSError:
+        key = "io_error"
+    except sqlite3.Error:
+        key = "database_error"
+    if key:
+        raise click.ClickException(tr(f"desktopSnapshot.{key}", resolve_cli_locale()))
+    click.echo(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+@backup.command("inspect-snapshot")
+@click.argument("database", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def inspect_desktop_snapshot(database: Path) -> None:
+    """Verify a desktop pre-upgrade database and its managed-home snapshot."""
+    _snapshot_result(lambda: inspect_snapshot(database))
+
+
+@backup.command("restore-snapshot")
+@click.argument("database", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--destination", required=True, type=click.Path(path_type=Path))
+def restore_desktop_snapshot(database: Path, destination: Path) -> None:
+    """Restore into a NEW offline home; existing data is never overwritten."""
+    _snapshot_result(lambda: restore_snapshot(database, destination))
+
+
 @backup.command("create")
 @click.option(
     "-o", "--output", type=click.Path(path_type=Path), default=None, help="Output .tar.gz path."
 )
 @click.option(
-    "--home", type=click.Path(path_type=Path), default=None, help="Octop home (default ~/.octop)."
+    "--home",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Xfriend home (default ~/.xfriend).",
 )
 @click.option("--no-config", is_flag=True, help="Do not include config.json / env.")
 @click.option("--no-workspaces", is_flag=True, help="Do not include agent workspaces.")
@@ -89,12 +143,15 @@ def create(
 
 @backup.group("auto")
 def auto() -> None:
-    """Automatic backup status and one-shot run (schedule requires ``octop run``)."""
+    """Automatic backup status and one-shot run (schedule requires ``xfriend run``)."""
 
 
 @auto.command("status")
 @click.option(
-    "--home", type=click.Path(path_type=Path), default=None, help="Octop home (default ~/.octop)."
+    "--home",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Xfriend home (default ~/.xfriend).",
 )
 def auto_status(home: Path | None) -> None:
     """Print automatic backup settings from config.json."""
@@ -110,12 +167,15 @@ def auto_status(home: Path | None) -> None:
     click.echo(f"include_plugins: {backup_cfg.include_plugins}")
     click.echo(f"include_knowledge: {backup_cfg.include_knowledge}")
     click.echo(f"include_chats: {backup_cfg.include_chats}")
-    click.echo("note: the scheduler only runs inside an active `octop run` process")
+    click.echo("note: the scheduler only runs inside an active `xfriend run` process")
 
 
 @auto.command("run")
 @click.option(
-    "--home", type=click.Path(path_type=Path), default=None, help="Octop home (default ~/.octop)."
+    "--home",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Xfriend home (default ~/.xfriend).",
 )
 def auto_run(home: Path | None) -> None:
     """Create one automatic backup now and apply retention pruning."""
@@ -149,14 +209,17 @@ def auto_run(home: Path | None) -> None:
 @backup.command("restore")
 @click.argument("archive", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    "--home", type=click.Path(path_type=Path), default=None, help="Octop home (default ~/.octop)."
+    "--home",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Xfriend home (default ~/.xfriend).",
 )
 @click.option("--no-config", is_flag=True, default=False, help="Do not restore config.json / env.")
 @click.option(
     "--owner-user-id",
     type=int,
     default=None,
-    help="For LightClaw migration archives: Octop user id that receives imported ownership "
+    help="For LightClaw migration archives: Singu Xfriend user id that receives imported ownership "
     "(default: first admin among current users).",
 )
 @click.option("--yes", is_flag=True, default=False, help="Skip confirmation.")
@@ -167,7 +230,7 @@ def restore(
     owner_user_id: int | None,
     yes: bool,
 ) -> None:
-    """Restore from a backup archive. Stop ``octop run`` first for a clean restore."""
+    """Restore from a backup archive. Stop ``xfriend run`` first for a clean restore."""
     if not yes:
         click.confirm(
             "This overwrites the database and local workspaces. Continue?",

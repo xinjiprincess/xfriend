@@ -123,7 +123,7 @@ def _x_ff_ctx() -> str:
             "deviceMemory": 8,
             "clientSurface": "cli",
             "timezoneOffset": 480,
-            "deviceId": hashlib.sha256(f"octop-fliggy-{uuid.getnode()}".encode()).hexdigest(),
+            "deviceId": hashlib.sha256(f"xfriend-fliggy-{uuid.getnode()}".encode()).hexdigest(),
         },
     }
     raw = gzip.compress(json.dumps(payload, separators=(",", ":")).encode("utf-8"))

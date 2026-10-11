@@ -16,20 +16,20 @@ from octop.infra.db.pool import SqlitePool
 
 @pytest.fixture
 def db(tmp_path: Path) -> SqlitePool:
-    pool = SqlitePool(tmp_path / "octop.db")
+    pool = SqlitePool(tmp_path / "xfriend.db")
     run_migrations(pool)
     return pool
 
 
 def test_db_pool_creates_file(tmp_path: Path):
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     SqlitePool(db_path)
     assert db_path.exists()
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX-only mode bits")
 def test_db_pool_file_is_0600(tmp_path: Path):
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     SqlitePool(db_path)
     mode = db_path.stat().st_mode & 0o777
     assert mode == 0o600
@@ -147,14 +147,14 @@ def test_run_migrations_idempotent(db: SqlitePool):
 
 def test_repair_legacy_schema_ensures_columns(tmp_path: Path) -> None:
     """DBs missing columns must be repaired on boot even if schema version is ahead."""
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     pool = SqlitePool(db_path)
     with pool.connect() as conn:
         conn.executescript(
             (
                 Path(__file__).resolve().parents[3]
                 / "src/octop/infra/db/migrations/001_initial.sql"
-            ).read_text()
+            ).read_text(encoding="utf-8")
         )
         # Simulate a schema version ahead of what the columns reflect
         conn.execute("UPDATE _schema_version SET version = 2")
@@ -167,14 +167,14 @@ def test_repair_legacy_schema_ensures_columns(tmp_path: Path) -> None:
 
 def test_migration_002_idempotent_when_column_already_present(tmp_path: Path) -> None:
     """Partial upgrade: mcp_servers exists but version still 1 must not fail."""
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     pool = SqlitePool(db_path)
     with pool.connect() as conn:
         conn.executescript(
             (
                 Path(__file__).resolve().parents[3]
                 / "src/octop/infra/db/migrations/001_initial.sql"
-            ).read_text()
+            ).read_text(encoding="utf-8")
         )
         conn.execute("ALTER TABLE cron_jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'")
     run_migrations(pool)
@@ -191,13 +191,13 @@ def test_migration_002_idempotent_when_column_already_present(tmp_path: Path) ->
 
 def test_migration_005_preserves_populated_users_and_constraints(tmp_path: Path) -> None:
     """A populated v4 DB keeps users and their foreign-key references at v5."""
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     pool = SqlitePool(db_path)
     initial_migration = (
         Path(__file__).resolve().parents[3] / "src/octop/infra/db/migrations/001_initial.sql"
     )
     with pool.connect() as conn:
-        conn.executescript(initial_migration.read_text())
+        conn.executescript(initial_migration.read_text(encoding="utf-8"))
         conn.execute("UPDATE _schema_version SET version = 4")
         conn.execute(
             """
@@ -306,14 +306,14 @@ def test_migration_005_preserves_populated_users_and_constraints(tmp_path: Path)
 
 def test_stuck_version_6_without_permissions_column_is_repaired(tmp_path: Path) -> None:
     """Pre-squash version clamp can leave schema at 6 without users.permissions."""
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     pool = SqlitePool(db_path)
     with pool.connect() as conn:
         conn.executescript(
             (
                 Path(__file__).resolve().parents[3]
                 / "src/octop/infra/db/migrations/001_initial.sql"
-            ).read_text()
+            ).read_text(encoding="utf-8")
         )
         conn.execute("UPDATE _schema_version SET version = 6")
     run_migrations(pool)
@@ -326,14 +326,14 @@ def test_stuck_version_6_without_permissions_column_is_repaired(tmp_path: Path) 
 
 def test_schema_v10_without_projection_tables_is_repaired(tmp_path: Path) -> None:
     """DBs that bumped to v10 via a colliding 010 file still get projection tables."""
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     pool = SqlitePool(db_path)
     with pool.connect() as conn:
         conn.executescript(
             (
                 Path(__file__).resolve().parents[3]
                 / "src/octop/infra/db/migrations/001_initial.sql"
-            ).read_text()
+            ).read_text(encoding="utf-8")
         )
         conn.execute("UPDATE _schema_version SET version = 10")
     run_migrations(pool)
@@ -359,14 +359,14 @@ def test_ahead_of_max_schema_version_clamps_to_max(tmp_path: Path) -> None:
     When the recorded version equals an older max (here 8) and a newer migration
     (9) exists, ``run_migrations`` applies the gap instead of clamping.
     """
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     pool = SqlitePool(db_path)
     with pool.connect() as conn:
         conn.executescript(
             (
                 Path(__file__).resolve().parents[3]
                 / "src/octop/infra/db/migrations/001_initial.sql"
-            ).read_text()
+            ).read_text(encoding="utf-8")
         )
         conn.execute("UPDATE _schema_version SET version = 8")
     run_migrations(pool)
@@ -388,13 +388,13 @@ def test_ahead_of_max_schema_version_clamps_to_max(tmp_path: Path) -> None:
 
 def test_current_watermark_repairs_pre_v13_connectors_schema(tmp_path: Path) -> None:
     """A folded v13 schema change is repaired even when migration 013 is skipped."""
-    pool = SqlitePool(tmp_path / "octop.db")
+    pool = SqlitePool(tmp_path / "xfriend.db")
     with pool.connect() as conn:
         conn.executescript(
             (
                 Path(__file__).resolve().parents[3]
                 / "src/octop/infra/db/migrations/001_initial.sql"
-            ).read_text()
+            ).read_text(encoding="utf-8")
         )
         conn.execute("UPDATE _schema_version SET version = 13")
         conn.execute(
@@ -440,14 +440,14 @@ def test_pre_squash_schema_version_clamped_and_knowledge_tables_filled(
     tmp_path: Path,
 ) -> None:
     """Develop DBs that applied split 005–009 must clamp to consolidated v5."""
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     pool = SqlitePool(db_path)
     with pool.connect() as conn:
         conn.executescript(
             (
                 Path(__file__).resolve().parents[3]
                 / "src/octop/infra/db/migrations/001_initial.sql"
-            ).read_text()
+            ).read_text(encoding="utf-8")
         )
         # Simulate a develop DB whose recorded version is ahead of the
         # consolidated max, so reconcile clamps and repairs knowledge tables.
@@ -516,7 +516,7 @@ def test_v7_sql_files_declare_identity_rebuild() -> None:
 
 def test_v7_sqlite_sql_upgrades_legacy_text_pks(tmp_path: Path) -> None:
     """A clean v6-shaped DB can execute 007.sql without going through Python helpers."""
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     pool = SqlitePool(db_path)
     migrations = Path(__file__).resolve().parents[3] / "src/octop/infra/db/migrations"
     with pool.connect() as conn:
@@ -611,7 +611,9 @@ def test_v7_sqlite_sql_upgrades_legacy_text_pks(tmp_path: Path) -> None:
             "id, kb_id, filename, content_type, byte_size, created_at, updated_at) "
             "VALUES ('doc1', 'kb1', 'a.md', 'text/markdown', 1, 1, 1)"
         )
-        conn.executescript((migrations / "007_resource_identity_and_profile.sql").read_text())
+        conn.executescript(
+            (migrations / "007_resource_identity_and_profile.sql").read_text(encoding="utf-8")
+        )
 
     with pool.connect() as conn:
         version = conn.execute("SELECT version FROM _schema_version").fetchone()[0]
@@ -638,7 +640,7 @@ def test_v7_sqlite_sql_upgrades_legacy_text_pks(tmp_path: Path) -> None:
 
 
 def test_v14_to_v15_adds_sso_provider_kind_without_rebuilding(tmp_path: Path) -> None:
-    pool = SqlitePool(tmp_path / "octop.db")
+    pool = SqlitePool(tmp_path / "xfriend.db")
     run_migrations(pool)
     with pool.connect() as conn:
         conn.execute("DROP INDEX IF EXISTS idx_sso_providers_kind")
@@ -697,7 +699,7 @@ def test_transaction_takes_the_write_lock_up_front(db: SqlitePool, tmp_path: Pat
     timeout cannot wait out.
     """
     _scratch(db)
-    competitor = _competitor(tmp_path / "octop.db", timeout_ms=100)
+    competitor = _competitor(tmp_path / "xfriend.db", timeout_ms=100)
     try:
         with db.transaction() as conn:
             conn.execute("SELECT COUNT(*) FROM scratch")  # read first: the trap
@@ -712,7 +714,7 @@ def test_transaction_completes_while_a_competing_writer_waits(
 ) -> None:
     """A read-then-write transaction must survive a competing writer instead of aborting."""
     _scratch(db)
-    competitor = _competitor(tmp_path / "octop.db", timeout_ms=5000)
+    competitor = _competitor(tmp_path / "xfriend.db", timeout_ms=5000)
     failures: list[Exception] = []
 
     def compete() -> None:

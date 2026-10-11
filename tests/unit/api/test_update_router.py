@@ -16,6 +16,25 @@ from octop.infra.setup import self_update
 from octop.infra.setup.self_update import UpgradeResult
 
 
+@pytest.mark.asyncio
+async def test_branded_desktop_never_fetches_upstream_releases(monkeypatch) -> None:
+    monkeypatch.setattr(update_router, "_is_desktop_process", lambda: True)
+    monkeypatch.setattr(update_router, "get_local_version", lambda: "1.0.2b6")
+
+    def unexpected_fetch():
+        pytest.fail("The branded desktop must not fetch upstream releases")
+
+    monkeypatch.setattr(update_router, "fetch_pypi_info", unexpected_fetch)
+    for endpoint in (update_router.update_status, update_router.check_for_updates):
+        status = await endpoint(_=None, server=_settings_server())
+        assert status["has_update"] is False
+        assert status["release_notes"] is None
+        assert status["desktop"] is True
+    with pytest.raises(OctopError) as error:
+        await update_router.trigger_upgrade(body=update_router.UpgradeBody(), server=None, _=None)
+    assert error.value.code == ErrorCode.FORBIDDEN
+
+
 @pytest.fixture(autouse=True)
 def _clear_update_status_cache() -> None:
     update_store.clear_cached_status()

@@ -70,4 +70,22 @@ def load_voice_presets() -> list[dict[str, Any]]:
             "requires_key": True,
             "description": "Xiaomi MiMo TTS (mimo-v2.5-tts). Limited-time free.",
         },
+        {
+            "id": "mimo-voicedesign",
+            "name": "Xiaomi MiMo VoiceDesign",
+            "kind": "mimo",
+            "capability": "tts",
+            "free": False,
+            "requires_key": True,
+            "description": "MiMo-V2.5-TTS-VoiceDesign",
+        },
+        {
+            "id": "mimo-voiceclone",
+            "name": "Xiaomi MiMo VoiceClone",
+            "kind": "mimo",
+            "capability": "tts",
+            "free": False,
+            "requires_key": True,
+            "description": "MiMo-V2.5-TTS-VoiceClone",
+        },
     ]

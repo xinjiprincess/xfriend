@@ -251,6 +251,18 @@ export function buildNavSections(
       icon: <Share2 size={iconSize} strokeWidth={iconStroke} />,
       labelKey: "nav.acp",
     });
+    controlItems.push({
+      key: "platform-collaboration",
+      path: "/platform-collaboration",
+      icon: <Share2 size={iconSize} strokeWidth={iconStroke} />,
+      labelKey: "platformCollaboration.title",
+    });
+    controlItems.push({
+      key: "assistant-settings",
+      path: "/assistant-settings",
+      icon: <Sparkles size={iconSize} strokeWidth={iconStroke} />,
+      labelKey: "assistantSettings.title",
+    });
   }
   if (controlItems.length > 0) {
     sections.push({

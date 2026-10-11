@@ -39,6 +39,10 @@ import StreamSetupGuide from "../../components/StreamSetupGuide/StreamSetupGuide
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { request } from "../../api/request";
 import {
+  executionApi,
+  type ExecutionExpert,
+} from "../../api/modules/execution";
+import {
   publishedExpertsApi,
   type PublishedExpert,
 } from "../../api/modules/publishedExperts";
@@ -113,6 +117,24 @@ export default function ExpertsPage() {
   const lang: "zh" | "en" = i18n.language?.startsWith("zh") ? "zh" : "en";
   const isMobile = useIsMobile();
   const { agents, refresh: refreshAgents } = useAgent();
+  const [engineBindings, setEngineBindings] = useState<
+    Record<string, ExecutionExpert>
+  >({});
+  useEffect(() => {
+    let disposed = false;
+    void executionApi
+      .experts()
+      .then((items) => {
+        if (!disposed)
+          setEngineBindings(
+            Object.fromEntries(items.map((item) => [item.id, item])),
+          );
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, [agents]);
   const currentUser = useCurrentUser();
 
   const canManagePublished = useCallback(
@@ -511,6 +533,7 @@ export default function ExpertsPage() {
               >
                 <AgentCard
                   agent={agent}
+                  engineBinding={engineBindings[agent.agent_id]}
                   iconName={agent.icon_name}
                   iconUrl={agent.icon_url}
                   accentColor={agent.color}

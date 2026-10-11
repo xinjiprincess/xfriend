@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "octop"
-version = "1.0.2b6"
+version = "1.4.0"
 description = "Smarter self-hosted AI assistant for multiple users and agents, built on octop-harness"
 readme = "README.md"
 license = { text = "MIT" }
@@ -41,6 +41,8 @@ dependencies = [
     "pillow>=10.0",
     "pypdf>=5.0",
     "python-docx>=1.2.0",
+    "markdown-it-py>=3.0",
+    "packaging>=24.0",
     "python-pptx>=1.0",
     "pypinyin>=0.53",
     "openpyxl>=3.1",
@@ -95,6 +97,7 @@ dev = [
 
 [project.scripts]
 octop = "octop.cli.main:cli"
+xfriend = "octop.cli.main:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/octop"]

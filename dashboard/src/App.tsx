@@ -29,6 +29,8 @@ import { useIsMobile } from "./hooks/useIsMobile";
 import { useUnauthorizedRedirect } from "./hooks/useUnauthorizedRedirect";
 import { installDesktopExternalLinks } from "./utils/desktopExternalLinks";
 import { brandTokensFor } from "./styles/themePalettes";
+import DesktopAssistant from "./pages/DesktopAssistant";
+import { getAuthToken } from "./api/request";
 import "./styles/theme-vars.css";
 import "./styles/layout.css";
 import "./styles/form-override.css";
@@ -57,6 +59,21 @@ function ThemedApp() {
   useUnauthorizedRedirect();
 
   useEffect(() => installDesktopExternalLinks(), []);
+
+  useEffect(() => {
+    if (location.pathname === "/desktop-assistant") return;
+    const transfer = () => {
+      const native = window as Window & {
+        _wails?: { invoke?: (message: string) => void };
+      };
+      native._wails?.invoke?.(
+        JSON.stringify({ type: "xfriend:session", token: getAuthToken() }),
+      );
+    };
+    transfer();
+    const timer = window.setInterval(transfer, 2000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Set document title based on current language
   useEffect(() => {
@@ -128,10 +145,11 @@ function ThemedApp() {
     >
       <AntdAppProvider>
         <DesktopChromeProvider value={desktopChrome}>
-          {desktopChrome ? (
+          {desktopChrome && location.pathname !== "/desktop-assistant" ? (
             <DesktopWindowControls chrome={desktopChrome} />
           ) : null}
           <Routes>
+            <Route path="/desktop-assistant" element={<DesktopAssistant />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/login/oidc/complete" element={<OidcComplete />} />
             <Route path="/setup" element={<SetupPage />} />

@@ -56,7 +56,7 @@ def resolve_storage_backend(row: BackendRow) -> Any:
     spec = row_to_backend_spec(row)
     if spec is None:
         raise ValueError("configuration incomplete")
-    workspace = tempfile.mkdtemp(prefix="octop-storage-browse-")
+    workspace = tempfile.mkdtemp(prefix="xfriend-storage-browse-")
     try:
         backend = adapt_backend_protocol(resolve_backend(spec, workspace_dir=workspace))
     except ValueError:

@@ -159,7 +159,7 @@ description: General-purpose agent
         from octop.infra.utils.frontmatter import parse_frontmatter
 
         paths: set[str] = set()
-        for root in ("agents", ".octop/agents"):
+        for root in ("agents", ".xfriend/agents"):
             agents_dir = self._workspace_dir / root
             if agents_dir.is_dir():
                 for fpath in agents_dir.glob("*.md"):
@@ -242,7 +242,7 @@ description: General-purpose agent
                     collected[fpath] = data
 
         # Real disk-backed workspace (e.g. when use_workspace_dir was called).
-        for root in ("skills", "_builtin_skills", ".octop/skills", ".octop/_builtin_skills"):
+        for root in ("skills", "_builtin_skills", ".xfriend/skills", ".xfriend/_builtin_skills"):
             disk_root = self._workspace_dir / root
             if disk_root.is_dir():
                 for fpath in disk_root.rglob("*.md"):

@@ -48,7 +48,7 @@ def test_update_yes_runs_upgrade(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(update_cmd, "get_local_version", lambda: "0.1.0")
     monkeypatch.setattr(update_cmd, "get_editable_path", lambda: None)
     monkeypatch.setattr(
-        update_cmd, "resolve_venv_python", lambda: "/home/user/.octop/venv/bin/python"
+        update_cmd, "resolve_venv_python", lambda: "/home/user/.xfriend/venv/bin/python"
     )
 
     called: dict[str, bool] = {}
@@ -66,7 +66,7 @@ def test_update_yes_runs_upgrade(monkeypatch: pytest.MonkeyPatch) -> None:
     assert called.get("ran") is True
     assert called["kwargs"]["version"] == "9.9.9"
     assert called["kwargs"]["allow_prerelease"] is False
-    assert "/home/user/.octop/venv/bin/python" in result.output
+    assert "/home/user/.xfriend/venv/bin/python" in result.output
 
 
 def test_update_already_latest(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -87,7 +87,7 @@ def test_update_already_latest(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_build_upgrade_command_uses_managed_venv_python() -> None:
-    python = "/home/user/.octop/venv/bin/python"
+    python = "/home/user/.xfriend/venv/bin/python"
     cmd = self_update.build_upgrade_command("uv", python, index_url="https://mirror.example/simple")
     assert cmd is not None
     assert "--python" in cmd
@@ -99,7 +99,7 @@ def test_build_upgrade_command_uses_managed_venv_python() -> None:
 
 
 def test_build_upgrade_command_pins_version() -> None:
-    python = "/home/user/.octop/venv/bin/python"
+    python = "/home/user/.xfriend/venv/bin/python"
     cmd = self_update.build_upgrade_command("uv", python, version="0.9.33")
     assert cmd is not None
     assert "octop==0.9.33" in cmd
@@ -201,7 +201,7 @@ def test_update_allow_prerelease_installs_prerelease(
     monkeypatch.setattr(update_cmd, "get_local_version", lambda: "0.1.0")
     monkeypatch.setattr(update_cmd, "get_editable_path", lambda: None)
     monkeypatch.setattr(
-        update_cmd, "resolve_venv_python", lambda: "/home/user/.octop/venv/bin/python"
+        update_cmd, "resolve_venv_python", lambda: "/home/user/.xfriend/venv/bin/python"
     )
 
     called: dict[str, object] = {}

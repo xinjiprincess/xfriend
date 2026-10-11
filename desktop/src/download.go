@@ -3,6 +3,8 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -95,7 +97,7 @@ func replacePortable(root string) error {
 		}
 		return err
 	}
-	_ = os.RemoveAll(previous)
+	// Retain the prior runtime until the replacement has passed its health check.
 	return nil
 }
 
@@ -349,17 +351,43 @@ func unzipGreenFiles(files []*zip.File, dest string) error {
 }
 
 func waitHealth(locale Locale, base string, timeout time.Duration) error {
+	return waitHealthForProcess(locale, base, timeout, nil, "")
+}
+
+func waitHealthForProcess(locale Locale, base string, timeout time.Duration, processDone <-chan error, logPath string) error {
 	deadline := time.Now().Add(timeout)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	client := &http.Client{Timeout: 2 * time.Second}
 	url := strings.TrimRight(base, "/") + "/api/health"
 	var lastErr error
 	var lastStatus int
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(url)
+		select {
+		case err := <-processDone:
+			if err == nil {
+				err = fmt.Errorf("exit code 0")
+			}
+			return withServiceLog(locale, fmt.Errorf("%s", desktopText(locale, copyServiceExited, err)), logPath)
+		default:
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
 		if err == nil {
 			lastStatus = resp.StatusCode
 			lastErr = nil
+			var health struct {
+				OK          bool   `json:"ok"`
+				Application string `json:"application"`
+				Protocol    int    `json:"protocol"`
+				Ready       bool   `json:"ready"`
+			}
+			decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 65536)).Decode(&health)
 			resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+			if resp.StatusCode == http.StatusOK && decodeErr == nil && health.OK && health.Ready && health.Application == "xfriend" && health.Protocol == 1 {
 				return nil
 			}
 		} else {
@@ -368,7 +396,14 @@ func waitHealth(locale Locale, base string, timeout time.Duration) error {
 		}
 		time.Sleep(400 * time.Millisecond)
 	}
-	return formatHealthWaitError(locale, base, timeout, lastErr, lastStatus)
+	return withServiceLog(locale, formatHealthWaitError(locale, base, timeout, lastErr, lastStatus), logPath)
+}
+
+func withServiceLog(locale Locale, err error, logPath string) error {
+	if logPath == "" {
+		return err
+	}
+	return fmt.Errorf("%w %s", err, desktopText(locale, copyServiceLog, logPath))
 }
 
 func formatWaitDuration(locale Locale, d time.Duration) string {

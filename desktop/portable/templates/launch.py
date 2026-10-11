@@ -51,6 +51,9 @@ def _bootstrap() -> Path:
 
 
 def main() -> None:
+    for name, value in tuple(os.environ.items()):
+        if name.startswith("XFRIEND_"):
+            os.environ["OCTOP_" + name.removeprefix("XFRIEND_")] = value
     _bootstrap()
     # ``python launch.py …`` → same as ``python -m octop …``
     sys.argv = [sys.argv[0], *sys.argv[1:]]

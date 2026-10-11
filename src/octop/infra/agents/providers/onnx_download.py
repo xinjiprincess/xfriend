@@ -427,7 +427,7 @@ def export_model_tree_for_cos(
     hf_repo = _hf_repo_id(model_name)
     dest = cos_local_model_dir(dest_root, model_name)
     tqdm_cls = _progress_tqdm(on_progress) if on_progress is not None else None
-    with tempfile.TemporaryDirectory(prefix="octop-onnx-cos-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="xfriend-onnx-cos-") as tmp:
         snapshot = Path(
             snapshot_download(
                 repo_id=hf_repo,

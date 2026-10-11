@@ -10,10 +10,58 @@ import (
 	"time"
 )
 
-const sqliteBackupScript = "import sqlite3,sys; src=sqlite3.connect(sys.argv[1]); dst=sqlite3.connect(sys.argv[2]); src.backup(dst); dst.close(); src.close()"
+const sqliteBackupScript = `
+import contextlib, hashlib, json, os, pathlib, shutil, sqlite3, sys
+source, destination, home = map(pathlib.Path, sys.argv[1:4])
+def backup_database(src, dst):
+    with contextlib.closing(sqlite3.connect(src)) as reader, contextlib.closing(sqlite3.connect(dst)) as writer:
+        reader.backup(writer)
+        if writer.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+            raise RuntimeError('SQLite backup integrity check failed')
+backup_database(source, destination)
+snapshot = destination.with_suffix('.data')
+snapshot.mkdir(mode=0o700)
+excluded = {'backups', 'portable', 'portable.previous', 'portable.new', 'logs', 'webview2', 'cache', 'runtimes'}
+for current, dirs, files in os.walk(home, followlinks=False):
+    current = pathlib.Path(current)
+    if current == home:
+        dirs[:] = [name for name in dirs if name not in excluded]
+    dirs[:] = [name for name in dirs if not (current / name).is_symlink() and (current / name).resolve() != snapshot.resolve()]
+    target = snapshot / current.relative_to(home)
+    target.mkdir(parents=True, exist_ok=True)
+    for name in files:
+        src = current / name
+        if src.resolve() in {source.resolve(), destination.resolve(), destination.with_suffix('.manifest.json').resolve()} or src.is_symlink() or name.endswith(('-wal', '-shm', '.tmp')):
+            continue
+        dst = target / name
+        with src.open('rb') as stream:
+            is_database = stream.read(16) == b'SQLite format 3\x00'
+        if is_database:
+            backup_database(src, dst)
+        else:
+            shutil.copy2(src, dst)
+def describe(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return {'size': path.stat().st_size, 'sha256': digest.hexdigest()}
+manifest = {
+    'format': 1,
+    'application': 'xfriend',
+    'source_home': str(home.resolve()),
+    'source_database': str(source.resolve()),
+    'consistency': 'per_database_online_backup',
+    'database': describe(destination),
+    'files': {p.relative_to(snapshot).as_posix(): describe(p) for p in sorted(snapshot.rglob('*')) if p.is_file()},
+    'excluded': sorted(excluded),
+    'scope': 'managed_home_and_control_database',
+}
+destination.with_suffix('.manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
+`
 
 var runSQLiteBackup = func(python, source, destination string) error {
-	cmd := exec.Command(python, "-c", sqliteBackupScript, source, destination)
+	cmd := exec.Command(python, "-c", sqliteBackupScript, source, destination, octopHome())
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("SQLite backup failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -29,7 +77,7 @@ type desktopDatabaseConfig struct {
 
 func desktopSQLitePath(home string) (string, bool, error) {
 	driver := "sqlite"
-	sqlitePath := "octop.db"
+	sqlitePath := "xfriend.db"
 	configPath := filepath.Join(home, "config.json")
 	if data, err := os.ReadFile(configPath); err == nil {
 		var config desktopDatabaseConfig
@@ -98,7 +146,7 @@ func backupSQLiteBeforeUpgrade(root, currentVersion, nextVersion string) (string
 		return "", fmt.Errorf("create backup directory: %w", err)
 	}
 	name := fmt.Sprintf(
-		"octop-desktop-pre-upgrade-%s-to-%s-%s.db",
+		"xfriend-desktop-pre-upgrade-%s-to-%s-%s.db",
 		safeVersion(currentVersion),
 		safeVersion(nextVersion),
 		time.Now().UTC().Format("20060102T150405.000000000Z"),

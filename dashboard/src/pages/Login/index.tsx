@@ -271,9 +271,11 @@ export default function LoginPage() {
       >
         <img
           src={
-            isDark ? "/logo_horizontal_white.png" : "/logo_horizontal_dark.png"
+            isDark
+              ? "/xfriend-wordmark-light.svg"
+              : "/xfriend-wordmark-dark.svg"
           }
-          alt="Octop"
+          alt="Singu Xfriend"
           style={{
             height: 48,
             width: "auto",

@@ -1,4 +1,4 @@
-"""`octop update` — self-upgrade via pip or uv."""
+"""`xfriend update` — self-upgrade via pip or uv."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from octop.infra.setup.self_update import (
     fetch_pypi_info,
     get_editable_path,
     get_local_version,
+    green_packages_dir,
     is_newer,
     is_prerelease,
     resolve_venv_python,
@@ -27,7 +28,13 @@ from octop.infra.setup.self_update import (
     help="Include and allow installing pre-releases (alpha / beta / rc / dev).",
 )
 def update(check: bool, yes: bool, verbose: bool, allow_prerelease: bool) -> None:
-    """Check for and install a newer Octop release."""
+    """Check for and install a newer Singu Xfriend release."""
+    if green_packages_dir() is not None:
+        from octop.i18n import tr
+        from octop.infra.utils.locale import DEFAULT_LOCALE
+
+        click.echo(tr("migration.installer_required", DEFAULT_LOCALE))
+        return
     current = get_local_version()
     info = fetch_pypi_info()
     click.echo(f"installed: {current}")
@@ -58,7 +65,7 @@ def update(check: bool, yes: bool, verbose: bool, allow_prerelease: bool) -> Non
         raise SystemExit(1)
 
     if not yes:
-        click.confirm(f"Upgrade octop from {current} to {latest}?", abort=True)
+        click.confirm(f"Upgrade Singu Xfriend from {current} to {latest}?", abort=True)
 
     venv_python = resolve_venv_python()
     click.echo(f"target python: {venv_python}")

@@ -45,6 +45,15 @@ class PluginInstallBody(BaseModel):
     url: str = Field(..., description="HTTP(S) URL to a plugin ZIP archive")
 
 
+class PluginVersion(BaseModel):
+    id: str
+    version: str
+
+
+class PluginRollbackBody(BaseModel):
+    version_id: str = Field(description="Saved version identifier from the versions endpoint")
+
+
 class AgentPluginToolBody(BaseModel):
     enabled: bool | None = None
     config: dict[str, Any] | None = None
@@ -303,6 +312,40 @@ async def uninstall_plugin(
     if server.app_runtime is not None:
         await server.app_runtime.agent_registry.reload_all()
     return {"status": "ok", "id": plugin_id}
+
+
+@router.get(
+    "/{plugin_id}/versions",
+    response_model=list[PluginVersion],
+    summary="List saved plugin versions (admin)",
+)
+async def plugin_versions(
+    plugin_id: str,
+    server: OctopServer = Depends(get_server),
+    _user: Any = Depends(require_permission("plugins")),
+) -> Any:
+    return await asyncio.get_running_loop().run_in_executor(
+        None, _plugin_manager(server).versions, plugin_id
+    )
+
+
+@router.post(
+    "/{plugin_id}/rollback",
+    response_model=PluginVersion,
+    summary="Restore a saved plugin version (admin)",
+)
+async def rollback_plugin(
+    plugin_id: str,
+    body: PluginRollbackBody,
+    server: OctopServer = Depends(get_server),
+    _user: Any = Depends(require_permission("plugins")),
+) -> Any:
+    loaded = await asyncio.get_running_loop().run_in_executor(
+        None, _plugin_manager(server).rollback, plugin_id, body.version_id
+    )
+    if server.app_runtime is not None:
+        await server.app_runtime.agent_registry.reload_all()
+    return {"id": loaded.manifest.id, "version": str(loaded.manifest.version)}
 
 
 @router.get(

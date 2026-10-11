@@ -45,6 +45,30 @@ def test_load_defaults_include_codebuddy(
     assert "qwen_code" not in runners
 
 
+def test_dsh_uses_bundled_runtime_and_isolates_state(
+    acp_store: tuple[ACPSettingsStore, AgentRepo, int],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, _, user_id = acp_store
+    portable = tmp_path / "portable"
+    runtime = portable / "runtime"
+    runtime.mkdir(parents=True)
+    plugin = portable / "engines" / "dsh"
+    (plugin / "node").mkdir(parents=True)
+    (plugin / "node" / "runtime-bootstrap.mjs").write_text("// runtime", encoding="utf-8")
+    import sys
+
+    binary = plugin / ("node.exe" if sys.platform == "win32" else "node")
+    binary.touch()
+    monkeypatch.setattr(sys, "executable", str(runtime / "python.exe"))
+    runner = store.load_runners(user_id)["dsh"]
+    assert runner["command"] == str(binary)
+    assert runner["args"] == [str(plugin / "node" / "runtime-bootstrap.mjs"), "--profile", "acp"]
+    assert str(user_id) in Path(runner["env"]["DSH_HOME"]).parts
+    assert not runner["enabled"]
+
+
 def test_save_and_load_round_trip(acp_store: tuple[ACPSettingsStore, AgentRepo, int]) -> None:
     store, _, user_id = acp_store
     saved = store.save_runners(

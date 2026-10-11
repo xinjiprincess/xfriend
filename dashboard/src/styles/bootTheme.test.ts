@@ -50,8 +50,8 @@ describe("index.html boot theme", () => {
     );
   });
 
-  it("uses the white vertical mark in dark mode", () => {
-    expect(INDEX_HTML).toContain('src="/logo_vertical_white.svg"');
+  it("uses the SinguXMATE mark in dark mode", () => {
+    expect(INDEX_HTML).toContain('src="/xfriend-icon.png"');
     expect(INDEX_HTML).toContain(
       'html[data-theme="dark"] .octop-boot-logo--dark',
     );

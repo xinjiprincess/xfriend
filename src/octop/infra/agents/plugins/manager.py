@@ -9,8 +9,11 @@ import shutil
 import tempfile
 import urllib.error
 import urllib.request
+import uuid
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
+from threading import RLock
 from typing import Any
 from urllib.parse import urlparse
 
@@ -24,6 +27,8 @@ from octop_harness.plugins import (
     unload_plugin,
 )
 
+from octop.infra.agents.plugins.capabilities import load_capabilities
+from octop.infra.agents.plugins.dependencies import dependencies_satisfied
 from octop.infra.agents.plugins.legacy_imports import ensure_legacy_harness_agent_alias
 from octop.infra.errors import ErrorCode, OctopError, corrupt_config_error
 from octop.infra.utils.json_file import (
@@ -62,6 +67,11 @@ def normalize_plugin_download_url(url: str) -> str:
 def _load_plugin_dir(plugin_dir: Path, *, install_deps: bool) -> LoadedPlugin:
     """Load one plugin, accepting the pre-rename ``harness_agent`` import."""
     ensure_legacy_harness_agent_alias()
+    manifest = PluginManifest.load(plugin_dir / "plugin.yaml")
+    load_capabilities(plugin_dir, manifest.id)
+    if install_deps:
+        manifest = PluginManifest.load(plugin_dir / "plugin.yaml")
+        install_deps = not dependencies_satisfied(plugin_dir, manifest)
     return load_plugin_dir(plugin_dir, install_deps=install_deps)
 
 
@@ -275,9 +285,13 @@ _MARKET_ASSET_SUFFIXES = frozenset({".svg", ".png", ".jpg", ".jpeg", ".webp", ".
 
 
 class PluginManager:
-    def __init__(self, *, plugins_dir: Path, config_path: Path) -> None:
+    def __init__(
+        self, *, plugins_dir: Path, config_path: Path, assert_idle: Callable[[], None] | None = None
+    ) -> None:
         self._plugins_dir = plugins_dir
         self._config_path = config_path
+        self._assert_idle = assert_idle or (lambda: None)
+        self._mutation_lock = RLock()
         self._plugins_dir.mkdir(parents=True, exist_ok=True)
         # Last-known tool metadata so Admin / Experts can still list tools after
         # a global disable unloads the plugin from the process registry.
@@ -288,19 +302,40 @@ class PluginManager:
     def plugins_dir(self) -> Path:
         return self._plugins_dir
 
+    def contributions(self) -> list[dict[str, Any]]:
+        enabled = self.global_enabled_map()
+        result: list[dict[str, Any]] = []
+        for directory in discover_plugin_dirs(self._plugins_dir):
+            if enabled.get(directory.name) is False:
+                continue
+            try:
+                manifest = load_capabilities(directory, directory.name)
+            except (ValueError, OSError):
+                continue
+            if manifest is None:
+                continue
+            for item in manifest.contributions:
+                result.append(
+                    {
+                        **item.model_dump(),
+                        "plugin_id": manifest.id,
+                        "plugin_version": manifest.version,
+                        "permissions": manifest.permissions,
+                        "dependencies": manifest.dependencies,
+                    }
+                )
+        return result
+
     def global_enabled_map(self) -> dict[str, bool]:
         return _read_global_plugins(self._config_path)
 
     def seed_bundled(self) -> list[str]:
-        """Upgrade already-installed bundled plugins when catalog versions are newer."""
-        from octop.infra.agents.plugins.bundled import default_bundled_plugins_root
-        from octop.infra.agents.plugins.seed import seed_bundled_plugins
+        """Keep installed versions at boot; catalog upgrades require explicit activation.
 
-        return seed_bundled_plugins(
-            bundled_root=default_bundled_plugins_root(),
-            plugins_dir=self._plugins_dir,
-            config_path=self._config_path,
-        )
+        Startup must not replace working plugins before an update can be reviewed
+        or bypass the transactional install/rollback path.
+        """
+        return []
 
     def market_root(self) -> Path:
         """In-tree marketplace catalog root (future: remote index)."""
@@ -399,6 +434,7 @@ class PluginManager:
         for plugin_dir in discover_plugin_dirs(self._plugins_dir):
             try:
                 manifest = PluginManifest.load(plugin_dir / "plugin.yaml")
+                load_capabilities(plugin_dir, manifest.id)
             except Exception as exc:
                 logger.error("skip plugin dir %s: %s", plugin_dir, exc)
                 continue
@@ -459,6 +495,7 @@ class PluginManager:
         for plugin_dir in discover_plugin_dirs(self._plugins_dir):
             try:
                 manifest = PluginManifest.load(plugin_dir / "plugin.yaml")
+                load_capabilities(plugin_dir, manifest.id)
             except Exception as exc:
                 out.append(
                     {
@@ -509,7 +546,12 @@ class PluginManager:
         return out
 
     def set_enabled(self, plugin_id: str, enabled: bool) -> dict[str, Any]:
+        with self._mutation_lock:
+            return self._set_enabled(plugin_id, enabled)
+
+    def _set_enabled(self, plugin_id: str, enabled: bool) -> dict[str, Any]:
         """Toggle global plugin enablement in ``config.json`` and load/unload registry."""
+        self._assert_idle()
         plugin_dir = self.plugin_dir(plugin_id)
         if plugin_dir is None:
             raise OctopError(ErrorCode.NOT_FOUND, f"plugin {plugin_id!r} not found")
@@ -521,18 +563,17 @@ class PluginManager:
                 f"invalid plugin manifest: {exc}",
             ) from exc
 
+        if enabled and PluginRegistry().get(plugin_id) is None:
+            try:
+                _load_plugin_dir(plugin_dir, install_deps=False)
+            except Exception as exc:
+                raise OctopError(
+                    ErrorCode.PLUGIN_INSTALL_FAILED,
+                    f"failed to load plugin: {exc}",
+                    details={"reason": str(exc)},
+                ) from exc
         _write_global_plugin_enabled(self._config_path, plugin_id, enabled)
-        if enabled:
-            if PluginRegistry().get(plugin_id) is None:
-                try:
-                    _load_plugin_dir(plugin_dir, install_deps=False)
-                except Exception as exc:
-                    raise OctopError(
-                        ErrorCode.PLUGIN_INSTALL_FAILED,
-                        f"failed to load plugin: {exc}",
-                        details={"reason": str(exc)},
-                    ) from exc
-        else:
+        if not enabled:
             loaded = PluginRegistry().get(plugin_id)
             if loaded is not None:
                 self._tool_catalog[plugin_id] = [
@@ -603,6 +644,11 @@ class PluginManager:
         )
 
     def install_path(self, source: Path, *, force: bool = False) -> LoadedPlugin:
+        with self._mutation_lock:
+            return self._install_path(source, force=force)
+
+    def _install_path(self, source: Path, *, force: bool = False) -> LoadedPlugin:
+        self._assert_idle()
         source = source.resolve()
         if not source.is_dir():
             raise OctopError(
@@ -611,30 +657,76 @@ class PluginManager:
             )
         try:
             manifest = PluginManifest.load(source / "plugin.yaml")
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", manifest.id):
+                raise ValueError("Invalid plugin identifier")
+            load_capabilities(source, manifest.id, dependencies_root=self._plugins_dir)
         except Exception as exc:
             raise OctopError(
                 ErrorCode.PLUGIN_INVALID_ARCHIVE,
                 f"invalid plugin manifest: {exc}",
             ) from exc
         dest = self._plugins_dir / manifest.id
-        if dest.exists():
-            if not force:
-                raise OctopError(
-                    ErrorCode.PLUGIN_ALREADY_EXISTS,
-                    f"plugin already installed: {manifest.id}",
-                    details={"id": manifest.id},
-                )
-            shutil.rmtree(dest)
-        shutil.copytree(source, dest)
-        unload_plugin(manifest.id)
-        try:
-            return _load_plugin_dir(dest, install_deps=True)
-        except Exception as exc:
+        if dest.exists() and not force:
+            raise OctopError(
+                ErrorCode.PLUGIN_ALREADY_EXISTS,
+                "Plugin already installed",
+                details={"id": manifest.id},
+            )
+        if dest.exists() and not dependencies_satisfied(source, manifest):
             raise OctopError(
                 ErrorCode.PLUGIN_INSTALL_FAILED,
-                f"failed to load plugin: {exc}",
-                details={"reason": str(exc)},
-            ) from exc
+                "Install compatible dependencies before upgrading; runtime dependencies are not changed during rollback-safe upgrades",
+            )
+        # Copy first: a failed download/copy must never remove the installed package.
+        with tempfile.TemporaryDirectory(dir=self._plugins_dir.parent) as temporary:
+            candidate = Path(temporary) / "candidate"
+            shutil.copytree(source, candidate)
+            backup = self._plugins_dir.parent / "plugin-versions" / manifest.id / str(uuid.uuid4())
+            had_previous = dest.exists()
+            if had_previous:
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                dest.rename(backup)
+            unload_plugin(manifest.id)
+            try:
+                candidate.rename(dest)
+                loaded = _load_plugin_dir(dest, install_deps=True)
+                if self.global_enabled_map().get(manifest.id) is False:
+                    unload_plugin(manifest.id)
+                return loaded
+            except Exception as exc:
+                unload_plugin(manifest.id)
+                if dest.exists():
+                    shutil.rmtree(dest)
+                if had_previous:
+                    backup.rename(dest)
+                    _load_plugin_dir(dest, install_deps=False)
+                    if self.global_enabled_map().get(manifest.id) is False:
+                        unload_plugin(manifest.id)
+                raise OctopError(
+                    ErrorCode.PLUGIN_INSTALL_FAILED,
+                    "Plugin activation failed; previous files restored",
+                    details={"reason": str(exc)},
+                ) from exc
+
+    def versions(self, plugin_id: str) -> list[dict[str, str]]:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", plugin_id):
+            raise OctopError(ErrorCode.NOT_FOUND, "Plugin not found")
+        root = self._plugins_dir.parent / "plugin-versions" / plugin_id
+        if not root.is_dir():
+            return []
+        result = []
+        for folder in sorted(root.iterdir(), key=lambda path: path.stat().st_mtime, reverse=True):
+            if folder.is_dir() and (folder / "plugin.yaml").is_file():
+                manifest = PluginManifest.load(folder / "plugin.yaml")
+                result.append({"id": folder.name, "version": str(manifest.version)})
+        return result
+
+    def rollback(self, plugin_id: str, version_id: str) -> LoadedPlugin:
+        versions = self.versions(plugin_id)
+        if version_id not in {item["id"] for item in versions}:
+            raise OctopError(ErrorCode.NOT_FOUND, "Plugin version not found")
+        source = self._plugins_dir.parent / "plugin-versions" / plugin_id / version_id
+        return self.install_path(source, force=True)
 
     def install_archive(self, archive: Path, *, force: bool = False) -> LoadedPlugin:
         """Install a plugin from a local ZIP archive.
@@ -650,7 +742,7 @@ class PluginManager:
                 with zipfile.ZipFile(archive) as zf:
                     for member in zf.namelist():
                         target = (extract_to / member).resolve()
-                        if not str(target).startswith(str(extract_to.resolve())):
+                        if not target.is_relative_to(extract_to.resolve()):
                             raise OctopError(
                                 ErrorCode.PLUGIN_INVALID_ARCHIVE,
                                 "zip path traversal detected",
@@ -713,6 +805,11 @@ class PluginManager:
                 ) from exc
 
     def uninstall(self, plugin_id: str) -> None:
+        with self._mutation_lock:
+            self._uninstall(plugin_id)
+
+    def _uninstall(self, plugin_id: str) -> None:
+        self._assert_idle()
         unload_plugin(plugin_id)
         self._tool_catalog.pop(plugin_id, None)
         self._skill_catalog.pop(plugin_id, None)

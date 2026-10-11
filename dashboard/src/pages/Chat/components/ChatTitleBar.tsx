@@ -25,6 +25,7 @@ interface ChatTitleBarProps {
   onPin: (id: string, pinned: boolean) => void;
   onFork: (id: string) => void;
   onDelete: (id: string) => void;
+  onExport?: () => void;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
   isTeam?: boolean;
@@ -37,6 +38,7 @@ export default function ChatTitleBar({
   onPin,
   onFork,
   onDelete,
+  onExport,
   forkDisabled,
   forkDisabledHint,
   isTeam = false,
@@ -86,6 +88,12 @@ export default function ChatTitleBar({
       },
       { type: "divider" },
       {
+        key: "export",
+        label: t("conversationExport.title"),
+        onClick: onExport,
+        disabled: !onExport,
+      },
+      {
         key: "pin",
         label: session.pinned
           ? t("chat.unpin", "取消置顶")
@@ -127,6 +135,7 @@ export default function ChatTitleBar({
       onPin,
       onFork,
       onDelete,
+      onExport,
       forkDisabled,
       forkDisabledHint,
       t,

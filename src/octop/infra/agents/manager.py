@@ -271,7 +271,7 @@ async def _fill_missing_subagent_colors(agent: Any, rows: list[dict[str, Any]]) 
 # Data types
 # ---------------------------------------------------------------------------
 
-# Custom agent ids become workspace directory names (~/.octop/agents/<id>/),
+# Custom agent ids become workspace directory names (~/.xfriend/agents/<id>/),
 # so restrict to a conservative slug charset — no separators, dots, or
 # unicode — to keep every downstream path/URL usage safe.
 _CUSTOM_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{1,62}[a-zA-Z0-9]$")
@@ -424,6 +424,7 @@ class AgentManager:
         self._acp_settings = ACPSettingsStore(
             settings_repo=repos.settings_repo,
             agents_repo=repos.agent_repo,
+            home=paths.root,
         )
         self._tool_guard_rules = ToolGuardRulesStore(paths=paths)
         self._providers = ProviderStore(
@@ -458,6 +459,7 @@ class AgentManager:
         self._acp_settings = ACPSettingsStore(
             settings_repo=repos.settings_repo,
             agents_repo=repos.agent_repo,
+            home=self._paths.root,
         )
         self._providers = ProviderStore(provider_repo=repos.provider_repo)
         self._connector_svc = ConnectorService(
@@ -1101,7 +1103,7 @@ class AgentManager:
     def resolve_workspace_dir(self, agent_id: str, *, persist_if_missing: bool = True) -> Path:
         """On-disk workspace for Octop host FS ops (delete, memory path, …).
 
-        May map agent-facing ``/.octop/workspaces/…`` onto scoped ``root_dir``.
+        May map agent-facing ``/.xfriend/workspaces/…`` onto scoped ``root_dir``.
         ``_build_harness_config`` parses the persisted string directly from
         config — do not route harness through this host join.
         """
@@ -3016,7 +3018,7 @@ class AgentManager:
             host = self.resolve_workspace_dir(agent_id, persist_if_missing=False)
         except Exception:
             return extra
-        for rel in (Path(".octop") / "manifest.json", Path("manifest.json")):
+        for rel in (Path(".xfriend") / "manifest.json", Path("manifest.json")):
             path = host / rel
             if not path.is_file():
                 continue
@@ -3079,7 +3081,7 @@ class AgentManager:
         raw = cfg.get("workspace_dir")
         stored = self._repos.agent_repo.get(row.agent_id) is not None
         if isinstance(raw, str) and raw.strip() and stored:
-            # Host mkdir may remap an unwritable leftover (e.g. /root/.octop/…)
+            # Host mkdir may remap an unwritable leftover (e.g. /root/.xfriend/…)
             # and persist the new path; re-read so harness gets that string.
             workspace_dir = self.resolve_workspace_dir(row.agent_id)
             persisted = self.get_config(row.agent_id)
@@ -3208,6 +3210,7 @@ class AgentManager:
         from octop.infra.agents.middleware.binary_read_guard import BinaryReadGuardMiddleware
         from octop.infra.agents.middleware.browser_profile import BrowserProfileMiddleware
         from octop.infra.agents.middleware.octop_ui_offload import OctopUiOffloadMiddleware
+        from octop.infra.agents.middleware.product_identity import ProductIdentityMiddleware
         from octop.infra.agents.middleware.reasoning import ReasoningRequestMiddleware
         from octop.infra.agents.middleware.thread_artifacts import ThreadArtifactsMiddleware
         from octop.infra.agents.middleware.token_quota import TokenQuotaMiddleware
@@ -3240,6 +3243,7 @@ class AgentManager:
                 agent_id=row.agent_id,
             ),
             OctopUiOffloadMiddleware(),
+            ProductIdentityMiddleware(),
         ]
 
         merged_tools: list[Any] = []

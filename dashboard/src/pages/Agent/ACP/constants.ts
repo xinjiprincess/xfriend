@@ -9,6 +9,7 @@ import customRunnerIcon from "../../../assets/providers/custom-provider.svg";
 
 /** Built-in ACP runner ids (order preserved in the grid). */
 export const BUILTIN_RUNNER_ORDER = [
+  "dsh",
   "opencode",
   "codebuddy",
   "claude_code",
@@ -35,6 +36,7 @@ export const RUNNER_ICONS: Record<string, string> = {
 };
 
 export const RUNNER_LABEL_KEYS: Record<string, string> = {
+  dsh: "acp.runner_dsh",
   opencode: "acp.runner_opencode",
   codebuddy: "acp.runner_codebuddy",
   claude_code: "acp.runner_claude_code",
@@ -45,6 +47,7 @@ export const RUNNER_LABEL_KEYS: Record<string, string> = {
 };
 
 export const RUNNER_INTRO_KEYS: Record<string, string> = {
+  dsh: "acp.intro_dsh",
   opencode: "acp.intro_opencode",
   codebuddy: "acp.intro_codebuddy",
   claude_code: "acp.intro_claude_code",

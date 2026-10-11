@@ -122,7 +122,7 @@ async def test_rehydrate_reloads_channels_and_cron_even_if_provider_rehydrate_fa
 async def test_create_backup_offloads_to_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     """Manual create must not run tar/sqlite work on the event loop."""
     entry = BackupFileInfo(
-        name="octop-backup-20260101T000000Z.tar.gz",
+        name="xfriend-backup-20260101T000000Z.tar.gz",
         size=12,
         modified_at="2026-01-01T00:00:00+00:00",
         created_at="2026-01-01T00:00:00+00:00",
@@ -153,7 +153,7 @@ async def test_create_backup_offloads_to_thread(monkeypatch: pytest.MonkeyPatch)
 @pytest.mark.asyncio
 async def test_create_backup_passes_selected_content(monkeypatch: pytest.MonkeyPatch) -> None:
     entry = BackupFileInfo(
-        name="octop-backup-20260101T000000Z.tar.gz",
+        name="xfriend-backup-20260101T000000Z.tar.gz",
         size=12,
         modified_at="2026-01-01T00:00:00+00:00",
         created_at="2026-01-01T00:00:00+00:00",

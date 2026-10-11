@@ -1,4 +1,4 @@
-"""octop channel commands (local DB + embedded runtime)."""
+"""xfriend channel commands (local DB + embedded runtime)."""
 
 from __future__ import annotations
 

@@ -32,16 +32,16 @@ def memory_db_path(workspace_dir: Path) -> Path:
     """Return the default SQLite file path within an agent workspace.
 
     Prefer an explicit on-disk file. When neither exists, treat a populated
-    ``.octop/_builtin_skills`` tree as the new-layout signal (empty ``.octop/``
+    ``.xfriend/_builtin_skills`` tree as the new-layout signal (empty ``.xfriend/``
     alone is not enough for legacy agents).
     """
-    nested = workspace_dir / ".octop" / "memory.sqlite"
+    nested = workspace_dir / ".xfriend" / "memory.sqlite"
     root = workspace_dir / "memory.sqlite"
     if nested.exists():
         return nested
     if root.exists():
         return root
-    if (workspace_dir / ".octop" / "_builtin_skills").is_dir():
+    if (workspace_dir / ".xfriend" / "_builtin_skills").is_dir():
         return nested
     return root
 

@@ -15,7 +15,7 @@ from octop.infra.db.repos.settings import SettingsRepo
 
 
 def _repos(tmp_path: Path) -> tuple[SettingsRepo, SecretRepo]:
-    db = SqlitePool(tmp_path / "octop.db")
+    db = SqlitePool(tmp_path / "xfriend.db")
     run_migrations(db)
     return SettingsRepo(db), SecretRepo(db)
 

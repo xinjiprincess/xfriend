@@ -28,6 +28,14 @@ def test_bundled_plugin_dirs_have_manifest_and_ui() -> None:
     for name in found:
         child = root / name
         assert (child / "main.py").is_file(), child
+        if (child / "xfriend.json").is_file():
+            from octop.infra.agents.plugins.capabilities import load_capabilities
+
+            manifest = load_capabilities(child, name)
+            assert manifest is not None and all(
+                item.type == "expert" for item in manifest.contributions
+            ), child
+            continue
         assert (child / "ui" / "index.js").is_file(), child
         assert (child / "ui" / "manifest.json").is_file(), child
 

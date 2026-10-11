@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
+from pathlib import Path
 from typing import Any
 
 from octop_harness.acp.models import ACPConfig, default_acp_runners
 
 from octop.infra.db.repos.agents import AgentRepo, AgentRow
 from octop.infra.db.repos.settings import SettingsRepo
+from octop.infra.utils.paths import PathLayout
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +20,12 @@ _SETTINGS_PREFIX = "acp_runners:user:"
 _HIDDEN_RUNNERS = frozenset({"qwen_code"})
 # Until octop-harness ships these builtins, merge Octop-side defaults.
 _OCTOP_BUILTIN_RUNNERS: dict[str, dict[str, Any]] = {
+    "dsh": {
+        "command": "dsh",
+        "args": ["--profile", "acp"],
+        "trusted": False,
+        "tool_parse_mode": "update_detail",
+    },
     "kimi_code": {
         "command": "kimi",
         "args": ["acp"],
@@ -45,9 +54,30 @@ def _settings_key(user_id: int) -> str:
 class ACPSettingsStore:
     """Persist ACP runner definitions once per user; agents only store ``tool_enabled``."""
 
-    def __init__(self, *, settings_repo: SettingsRepo, agents_repo: AgentRepo) -> None:
+    def __init__(
+        self, *, settings_repo: SettingsRepo, agents_repo: AgentRepo, home: Path | None = None
+    ) -> None:
         self._settings = settings_repo
         self._agents = agents_repo
+        self._home = home or PathLayout.from_env().root
+
+    def _response(self, user_id: int, raw: dict[str, Any]) -> dict[str, Any]:
+        runners = _runners_response(raw)
+        # The native engine's delegation tool and direct DSH chat share durable state.
+        runners["dsh"]["env"]["DSH_HOME"] = str(
+            self._home / "engine-data" / "dsh" / str(user_id) / "runtime"
+        )
+        runners["dsh"]["env"]["DSH_RESOURCE_CACHE"] = str(
+            self._home / "engine-data" / "dsh" / str(user_id) / "resources"
+        )
+        runners["dsh"]["env"]["DSH_TELEMETRY_DISABLED"] = "1"
+        bundled = Path(sys.executable).resolve().parent.parent / "engines" / "dsh"
+        entry = bundled / "node" / "runtime-bootstrap.mjs"
+        binary = bundled / ("node.exe" if sys.platform == "win32" else "node")
+        if runners["dsh"]["command"] == "dsh" and binary.is_file() and entry.is_file():
+            runners["dsh"]["command"] = str(binary)
+            runners["dsh"]["args"] = [str(entry), *runners["dsh"]["args"]]
+        return runners
 
     def load_runners(self, user_id: int) -> dict[str, Any]:
         """Return merged runner dict (built-ins + saved overrides)."""
@@ -61,15 +91,15 @@ class ACPSettingsStore:
             if isinstance(data, dict):
                 runners_raw = data.get("runners")
                 if isinstance(runners_raw, dict):
-                    return _runners_response(runners_raw)
-                return _runners_response(data)
+                    return self._response(user_id, runners_raw)
+                return self._response(user_id, data)
 
         migrated = self._migrate_legacy_from_agents(user_id)
         if migrated is not None:
             self._save_raw_runners(user_id, migrated)
-            return _runners_response(migrated)
+            return self._response(user_id, migrated)
 
-        return _runners_response({})
+        return self._response(user_id, {})
 
     def save_runners(self, user_id: int, runners: dict[str, Any]) -> dict[str, Any]:
         filtered = {k: v for k, v in runners.items() if k not in _HIDDEN_RUNNERS}

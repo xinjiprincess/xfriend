@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import styles from "./StreamConnectingIndicator.module.less";
 
-const MASCOT_TYPE = `${import.meta.env.BASE_URL}octop-mascot-type.webp`;
+const MASCOT_TYPE = `${import.meta.env.BASE_URL}xfriend-mascot.png`;
 
 interface StreamConnectingIndicatorProps {
   /** Status line under the animation (e.g. 「连接中」). */
@@ -16,7 +16,7 @@ interface StreamConnectingIndicatorProps {
 
 /**
  * Shared connecting / waiting-frame indicator for remote browser & desktop.
- * Uses the same Octop mascot loop as chat thinking bubbles.
+ * Uses the Singu Xfriend mascot image shared with chat thinking bubbles.
  */
 export default function StreamConnectingIndicator({
   label,

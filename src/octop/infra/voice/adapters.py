@@ -387,6 +387,45 @@ async def transcribe_mimo(
     return STTResult(text=text)
 
 
+def mimo_synthesis_payload(
+    row: VoiceProviderRow, text: str, voice_id: str | None = None
+) -> dict[str, Any]:
+    """Build the official MiMo TTS, VoiceDesign or VoiceClone request."""
+    extra = row.get_extra()
+    model = str(extra.get("tts_model") or "mimo-v2.5-tts")
+    if model not in {"mimo-v2.5-tts", "mimo-v2.5-tts-voicedesign", "mimo-v2.5-tts-voiceclone"}:
+        raise ValueError("Unsupported MiMo TTS model")
+    style = str(extra.get("voice_description") or "").strip()
+    audio: dict[str, str] = {"format": "pcm16"}
+    if model == "mimo-v2.5-tts-voicedesign":
+        if not style:
+            raise ValueError("VoiceDesign requires a voice description")
+    elif model == "mimo-v2.5-tts-voiceclone":
+        sample = str(extra.get("voice_sample") or "")
+        if not sample.startswith(("data:audio/wav;base64,", "data:audio/mpeg;base64,")):
+            raise ValueError("VoiceClone requires a WAV or MP3 data URL")
+        if len(sample.encode("utf-8")) > 10 * 1024 * 1024:
+            raise ValueError("VoiceClone sample exceeds 10 MiB")
+        try:
+            decoded = base64.b64decode(sample.split(",", 1)[1], validate=True)
+        except ValueError as exc:
+            raise ValueError("Invalid VoiceClone sample encoding") from exc
+        if not decoded:
+            raise ValueError("VoiceClone sample is empty")
+        audio["voice"] = sample
+    else:
+        audio["voice"] = _normalize_mimo_voice(voice_id or str(extra.get("voice_id") or "") or None)
+    return {
+        "model": model,
+        "messages": [
+            {"role": "user", "content": style or "Speak naturally."},
+            {"role": "assistant", "content": text},
+        ],
+        "audio": audio,
+        "stream": True,
+    }
+
+
 async def synthesize_mimo(
     row: VoiceProviderRow,
     text: str,
@@ -399,19 +438,9 @@ async def synthesize_mimo(
         raise ValueError("Mimo API key is required")
     base_url = (row.base_url or "https://api.xiaomimimo.com/v1").rstrip("/")
     await _guard_mimo_base_url(base_url)
-    extra = row.get_extra()
-    voice = _normalize_mimo_voice(voice_id or str(extra.get("voice_id") or "") or None)
     # Mimo TTS: text goes in assistant message, optional style in user message.
     # Speed is not a direct API parameter; ignored for stability.
-    payload: dict[str, Any] = {
-        "model": "mimo-v2.5-tts",
-        "messages": [
-            {"role": "user", "content": "Speak naturally."},
-            {"role": "assistant", "content": text},
-        ],
-        "audio": {"format": "pcm16", "voice": voice},
-        "stream": True,
-    }
+    payload = mimo_synthesis_payload(row, text, voice_id)
     # Low-latency streaming: request pcm16 chunks (24kHz PCM16LE mono) and
     # wrap them in a WAV container on the fly so standard players work.
     yield _wav_header(0xFFFF_FFFF)  # unknown length → max data size sentinel

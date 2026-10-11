@@ -58,9 +58,9 @@ _BLOCKED_WIN_DRIVE_PREFIXES = (
     "c:/program files (x86)/",
 )
 
-# New default is ``~/.octop-browser``; keep ``~/.harness-browser`` as a deny
+# New default is ``~/.xfriend-browser``; keep ``~/.harness-browser`` as a deny
 # source so leftover profiles cannot be downloaded after migration.
-_DENIED_BROWSER_HOME_SEGMENTS = (".harness-browser", ".octop-browser")
+_DENIED_BROWSER_HOME_SEGMENTS = (".harness-browser", ".xfriend-browser")
 
 
 def _contains_denied_browser_home(text: str) -> bool:
@@ -364,7 +364,7 @@ def is_allowed_host_download_abs_path(path: str, *, workspace: Path) -> bool:
     except ValueError:
         pass
 
-    if "/.octop/agents/" in norm:
+    if "/.xfriend/agents/" in norm:
         return True
     if is_allowed_host_temp_path(resolved):
         return True

@@ -10,7 +10,7 @@ from fastapi.openapi.utils import get_openapi
 from octop.api.deps import is_jwt_exempt_path
 
 API_DESCRIPTION = """\
-**Octop** is a smarter, self-hosted AI assistant for multiple users and agents. All routes are served under `/api`.
+**Singu Xfriend** is a smarter, self-hosted AI assistant for multiple users and agents. All routes are served under `/api`.
 
 ## Authentication
 
@@ -26,7 +26,7 @@ Most endpoints require a JWT bearer token:
 
 Access tokens use sliding renewal: when less than one-third of
 `access_token_ttl_seconds` remains, authenticated responses may include a fresh
-token in the `X-Octop-Access-Token` header. Clients should replace the stored
+token in the `X-Singu Xfriend-Access-Token` header. Clients should replace the stored
 token when present.
 
 Public endpoints (no token): `/api/docs`, `/api/openapi.json`, `/api/health`,
@@ -83,7 +83,7 @@ OPENAPI_TAGS: list[dict[str, str]] = [
     },
     {
         "name": "bridge",
-        "description": "Link this Octop to remote Octop instances (HTTP tunnel + remote chat).",
+        "description": "Link this Singu Xfriend to remote Singu Xfriend instances (HTTP tunnel + remote chat).",
     },
     {
         "name": "knowledge",
@@ -107,7 +107,7 @@ OPENAPI_TAGS: list[dict[str, str]] = [
     },
     {
         "name": "envs",
-        "description": "Global environment variables (~/.octop/env) inherited by every agent.",
+        "description": "Global environment variables (~/.xfriend/env) inherited by every agent.",
     },
     {
         "name": "search",

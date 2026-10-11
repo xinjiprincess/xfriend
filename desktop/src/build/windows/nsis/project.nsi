@@ -37,6 +37,8 @@ ManifestDPIAware true
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW ShowInstallMascot
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE StopInstallMascot
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
@@ -45,6 +47,9 @@ ManifestDPIAware true
 !insertmacro MUI_LANGUAGE "SimpChinese"
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_RESERVEFILE_LANGDLL
+
+LangString AppStillRunning ${LANG_SIMPCHINESE} "请先退出正在运行的 Singu Xfriend（包括系统托盘中的程序），再点击重试。安装程序会保留您的账号、对话和工作区数据。"
+LangString AppStillRunning ${LANG_ENGLISH} "Close Singu Xfriend, including its system tray window, then click Retry. Your account, conversations and workspace data will be preserved."
 
 Name "${INFO_PRODUCTNAME}"
 !ifndef INSTALLER_OUTFILE
@@ -58,6 +63,33 @@ OutFile "${INSTALLER_OUTFILE}"
 !endif
 ShowInstDetails show
 
+Var MascotControl
+
+Function ShowInstallMascot
+    InitPluginsDir
+    File /oname=$PLUGINSDIR\mascot.avi "mascot.avi"
+    # SysAnimate32 plays uncompressed AVI on its own timer while files unpack.
+    System::Call 'comctl32::InitCommonControls()'
+    System::Call 'user32::CreateWindowExW(i 0, w "SysAnimate32", w "", i 0x50000002, i 0, i 0, i 80, i 64, p $HWNDPARENT, p 0, p 0, p 0) p.r0'
+    StrCpy $MascotControl $0
+    # Place the animation in the header, allowing for the current DPI.
+    # A right-aligned child avoids covering the installation description.
+    System::Alloc 16
+    Pop $1
+    System::Call 'user32::GetClientRect(p $HWNDPARENT, p r1)'
+    System::Call '*$1(i, i, i.r2, i.r3)'
+    System::Free $1
+    IntOp $2 $2 - 92
+    System::Call 'user32::SetWindowPos(p $MascotControl, p 0, i r2, i 8, i 80, i 64, i 0x14)'
+    SendMessage $MascotControl 0x0467 0 "STR:$PLUGINSDIR\mascot.avi"
+    SendMessage $MascotControl 0x0465 -1 0xFFFF0000
+FunctionEnd
+
+Function StopInstallMascot
+    SendMessage $MascotControl 0x0466 0 0
+    System::Call 'user32::DestroyWindow(p $MascotControl)'
+FunctionEnd
+
 Function .onInit
     IfSilent skipLang
     !insertmacro MUI_LANGDLL_DISPLAY
@@ -65,8 +97,27 @@ Function .onInit
     !insertmacro wails.checkArchitecture
 FunctionEnd
 
+Function CheckApplicationClosed
+    retryApplication:
+    IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 applicationClosed
+    ClearErrors
+    FileOpen $0 "$INSTDIR\${PRODUCT_EXECUTABLE}" a
+    IfErrors applicationRunning
+    FileClose $0
+    Goto applicationClosed
+    applicationRunning:
+    IfSilent cancelInstall
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(AppStillRunning)" IDRETRY retryApplication
+    cancelInstall:
+    SetErrorLevel 2
+    Quit
+    applicationClosed:
+FunctionEnd
+
 Section
     !insertmacro wails.setShellContext
+
+    Call CheckApplicationClosed
 
     !insertmacro wails.webview2runtime
 

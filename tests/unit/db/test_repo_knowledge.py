@@ -15,7 +15,7 @@ from octop.infra.utils.paths import PathLayout
 
 @pytest.fixture
 def db(tmp_path: Path) -> SqlitePool:
-    pool = SqlitePool(tmp_path / "octop.db")
+    pool = SqlitePool(tmp_path / "xfriend.db")
     run_migrations(pool)
     return pool
 
@@ -58,8 +58,8 @@ def test_knowledge_tables_migrated(db: SqlitePool) -> None:
 
 
 def test_path_layout_knowledge_dir(tmp_path: Path) -> None:
-    paths = PathLayout(tmp_path / ".octop")
-    assert paths.knowledge_dir == tmp_path / ".octop" / "knowledge"
+    paths = PathLayout(tmp_path / ".xfriend")
+    assert paths.knowledge_dir == tmp_path / ".xfriend" / "knowledge"
 
 
 def test_knowledge_migrate_and_create(
@@ -162,14 +162,14 @@ def test_create_document_applies_limit_within_insert_transaction(
 
 
 def test_migration_007_rebuilds_text_primary_keys(tmp_path: Path) -> None:
-    db_path = tmp_path / "octop.db"
+    db_path = tmp_path / "xfriend.db"
     pool = SqlitePool(db_path)
     with pool.connect() as conn:
         conn.executescript(
             (
                 Path(__file__).resolve().parents[3]
                 / "src/octop/infra/db/migrations/001_initial.sql"
-            ).read_text()
+            ).read_text(encoding="utf-8")
         )
         conn.execute("UPDATE _schema_version SET version = 6")
         conn.executescript(

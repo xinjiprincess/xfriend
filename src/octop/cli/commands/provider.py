@@ -1,4 +1,4 @@
-"""octop provider commands."""
+"""xfriend provider commands."""
 
 from __future__ import annotations
 
