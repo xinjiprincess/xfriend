@@ -83,7 +83,7 @@ def stage(
     browser_pattern = (
         "chromium_headless_shell-*/chrome-headless-shell-win64/chrome-headless-shell.exe"
         if platform == "windows-amd64"
-        else "chromium_headless_shell-*/chrome-headless-shell-mac-arm64/headless_shell"
+        else "chromium_headless_shell-*/chrome-headless-shell-mac-arm64/chrome-headless-shell"
     )
     if not list(browsers.glob(browser_pattern)):
         raise ValueError("Pinned export browser is missing")

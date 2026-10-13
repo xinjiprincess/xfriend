@@ -40,7 +40,7 @@ def test_staging_rejects_modified_and_unlisted_inputs(tmp_path: Path, platform: 
     browser_dir, browser_name = (
         ("chrome-headless-shell-win64", "chrome-headless-shell.exe")
         if platform == "windows-amd64"
-        else ("chrome-headless-shell-mac-arm64", "headless_shell")
+        else ("chrome-headless-shell-mac-arm64", "chrome-headless-shell")
     )
     browser = browsers / "chromium_headless_shell-1" / browser_dir
     browser.mkdir(parents=True)
