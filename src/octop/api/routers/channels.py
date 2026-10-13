@@ -17,6 +17,7 @@ from pathlib import Path as _FsPath
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from octop_gateway.channels import ChannelKind
 from pydantic import BaseModel, ValidationError
 
 from octop.api.common.agent import require_agent_owner_row
@@ -24,7 +25,6 @@ from octop.api.deps import get_server, require_permission
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.bot_creators.feishu_runner import extract_feishu_credentials
 from octop.infra.gateway.channels import dingtalk_registration, qr_bind
-from octop.infra.gateway.gateway import ChannelKind
 from octop.infra.utils.locale import DEFAULT_LOCALE, resolve_request_locale
 from octop.infra.utils.subprocess_io import parse_subprocess_json_lines
 

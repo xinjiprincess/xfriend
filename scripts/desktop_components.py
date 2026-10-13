@@ -35,7 +35,7 @@ def verify(root: Path) -> dict[str, Any]:
     manifest = json.loads((root / "components.json").read_text(encoding="utf-8"))
     if (
         manifest["format"] != 1
-        or manifest["platform"] != "windows-amd64"
+        or manifest["platform"] not in ("windows-amd64", "darwin-arm64")
         or manifest["application"] != "xfriend"
     ):
         raise ValueError("Unsupported desktop component manifest")
@@ -54,7 +54,11 @@ def verify(root: Path) -> dict[str, Any]:
     return dict(manifest)
 
 
-def stage(dsh: Path, browsers: Path, output: Path) -> dict[str, Any]:
+def stage(
+    dsh: Path, browsers: Path, output: Path, platform: str = "windows-amd64"
+) -> dict[str, Any]:
+    if platform not in ("windows-amd64", "darwin-arm64"):
+        raise ValueError("Unsupported component platform")
     if output.exists():
         raise FileExistsError(output)
     engine = json.loads((dsh / "engine.json").read_text(encoding="utf-8"))
@@ -70,12 +74,19 @@ def stage(dsh: Path, browsers: Path, output: Path) -> dict[str, Any]:
             raise ValueError("DSH input checksum mismatch")
     if not all(component_path(dsh, engine[key]).is_file() for key in ("runtime", "entry")):
         raise ValueError("DSH runtime or entry is missing")
-    if not list(
-        browsers.glob(
-            "chromium_headless_shell-*/chrome-headless-shell-win64/chrome-headless-shell.exe"
-        )
-    ):
-        raise ValueError("Pinned Windows export browser is missing")
+    web_assets = (
+        "node/node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html",
+        "node/node_modules/@deepseek-ai/dsh-client-modules/lib/index.js",
+    )
+    if not all(component_path(dsh, name).is_file() for name in web_assets):
+        raise ValueError("DSH original web workspace is incomplete")
+    browser_pattern = (
+        "chromium_headless_shell-*/chrome-headless-shell-win64/chrome-headless-shell.exe"
+        if platform == "windows-amd64"
+        else "chromium_headless_shell-*/chrome-headless-shell-mac-arm64/headless_shell"
+    )
+    if not list(browsers.glob(browser_pattern)):
+        raise ValueError("Pinned export browser is missing")
     for source in (dsh, browsers):
         if source.is_symlink() or any(path.is_symlink() for path in source.rglob("*")):
             raise ValueError("Component inputs must be materialized, without symbolic links")
@@ -87,7 +98,7 @@ def stage(dsh: Path, browsers: Path, output: Path) -> dict[str, Any]:
         manifest = {
             "format": 1,
             "application": "xfriend",
-            "platform": "windows-amd64",
+            "platform": platform,
             "dsh_version": engine["version"],
             "upstream_commit": engine["upstream_commit"],
             "sha256": {
@@ -114,11 +125,14 @@ if __name__ == "__main__":
     stage_parser.add_argument("--dsh", type=Path, required=True)
     stage_parser.add_argument("--browsers", type=Path, required=True)
     stage_parser.add_argument("--output", type=Path, required=True)
+    stage_parser.add_argument(
+        "--platform", default="windows-amd64", choices=("windows-amd64", "darwin-arm64")
+    )
     verify_parser = commands.add_parser("verify")
     verify_parser.add_argument("--root", type=Path, required=True)
     args = parser.parse_args()
     result = (
-        stage(args.dsh, args.browsers, args.output)
+        stage(args.dsh, args.browsers, args.output, args.platform)
         if args.operation == "stage"
         else verify(args.root)
     )

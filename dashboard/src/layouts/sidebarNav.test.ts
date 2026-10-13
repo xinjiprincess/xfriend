@@ -6,6 +6,7 @@ import {
   isGroupedNavKey,
 } from "./sidebarNav";
 import type { OctopUser } from "../api/modules/auth";
+import { pathPermissionKeys } from "../utils/permissions";
 
 const adminUser = {
   id: 1,
@@ -15,6 +16,15 @@ const adminUser = {
 } as OctopUser;
 
 describe("sidebarNav", () => {
+  it("exposes the engine hub and restricts host-executing workspaces to administrators", () => {
+    const entry = buildNavSections(adminUser)
+      .flatMap((section) => section.items)
+      .find((item) => item.key === "engines");
+    expect(entry?.path).toBe("/engines");
+    expect(pathPermissionKeys("/engines")).toBeNull();
+    expect(pathPermissionKeys("/engines/dsh")).toBe("admin");
+    expect(pathPermissionKeys("/engines/dual")).toBe("admin");
+  });
   it("marks catalog keys as grouped", () => {
     for (const key of SIDEBAR_GROUPED_NAV_KEYS) {
       expect(isGroupedNavKey(key)).toBe(true);

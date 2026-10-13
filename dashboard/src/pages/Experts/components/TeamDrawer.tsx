@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Collapse, Drawer, Form, Input, Select, Spin } from "antd";
+import {
+  Alert,
+  Button,
+  Checkbox,
+  Collapse,
+  Drawer,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Spin,
+} from "antd";
 import { message } from "@/utils/antdMessage";
 
 import {
@@ -41,6 +52,8 @@ interface TeamFormValues {
   default_model: string;
   welcome_message?: string;
   member_ids: string[];
+  system_prompt?: string;
+  member_models?: Record<string, string>;
 }
 
 export default function TeamDrawer({
@@ -58,6 +71,15 @@ export default function TeamDrawer({
   const [templateFiles, setTemplateFiles] = useState<TeamTemplateFile[]>([]);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [rosterExtras, setRosterExtras] = useState<TeamMemberOption[]>([]);
+  const [revision, setRevision] = useState<string>();
+  const [recordLoading, setRecordLoading] = useState(false);
+  const [recordError, setRecordError] = useState(false);
+  const [sourceTeams, setSourceTeams] = useState<TeamRecord[]>([]);
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [sourceId, setSourceId] = useState<string>();
+  const [sourceMembers, setSourceMembers] = useState<string[]>([]);
+  const [copyModels, setCopyModels] = useState(false);
+  const selectedMembers = Form.useWatch("member_ids", form) ?? [];
   const pickerExperts = useMemo(
     () => mergeTeamPickerExperts(experts, rosterExtras),
     [experts, rosterExtras],
@@ -66,9 +88,14 @@ export default function TeamDrawer({
   useEffect(() => {
     if (!open) {
       setRosterExtras([]);
+      setSourceOpen(false);
+      setRevision(undefined);
       return;
     }
     if (mode === "edit" && team) {
+      setRecordLoading(true);
+      setRecordError(false);
+      setRevision(undefined);
       form.setFieldsValue({
         name: team.name,
         description: team.description ?? "",
@@ -87,7 +114,10 @@ export default function TeamDrawer({
             default_model: defaultModelToForm(record.default_model),
             welcome_message: record.welcome_message ?? "",
             member_ids: record.members.map((member) => member.agent_id),
+            system_prompt: record.system_prompt ?? "",
+            member_models: record.member_models ?? {},
           });
+          setRevision(record.revision);
           setRosterExtras(
             record.members.map((member) => ({
               agent_id: member.agent_id,
@@ -102,18 +132,29 @@ export default function TeamDrawer({
           );
         })
         .catch(() => {
-          if (!cancelled) setRosterExtras([]);
+          if (!cancelled) {
+            setRosterExtras([]);
+            setRecordError(true);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setRecordLoading(false);
         });
       return () => {
         cancelled = true;
       };
     }
+    setRecordLoading(false);
+    setRecordError(false);
+    setRevision(undefined);
     form.setFieldsValue({
       name: "",
       description: "",
       default_model: MODEL_AUTO_VALUE,
       welcome_message: t("experts.teams.welcomeDefault"),
       member_ids: [],
+      system_prompt: "",
+      member_models: {},
     });
     setRosterExtras([]);
   }, [form, mode, open, t, team]);
@@ -139,7 +180,7 @@ export default function TeamDrawer({
   }, [open]);
 
   const hasNoModels = !modelsLoading && models.length === 0;
-  const blocked = submitting || hasNoModels;
+  const blocked = submitting || hasNoModels || recordLoading || recordError;
 
   const handleSubmit = async () => {
     const values = await form.validateFields();
@@ -151,6 +192,16 @@ export default function TeamDrawer({
       icon_url: TEAM_AVATAR_URL,
       welcome_message: values.welcome_message?.trim() || null,
       member_ids: selectedRosterIds(values.member_ids, pickerExperts),
+      system_prompt: values.system_prompt?.trim() || null,
+      member_models: Object.fromEntries(
+        Object.entries(values.member_models ?? {}).filter(
+          ([id, model]) =>
+            values.member_ids.includes(id) &&
+            model &&
+            model !== MODEL_AUTO_VALUE,
+        ),
+      ),
+      ...(mode === "edit" ? { revision } : {}),
     };
     setSubmitting(true);
     try {
@@ -206,6 +257,14 @@ export default function TeamDrawer({
         </div>
       }
     >
+      {recordError && (
+        <Alert
+          type="error"
+          showIcon
+          message={t("experts.teams.loadFailed")}
+          style={{ marginBottom: 16 }}
+        />
+      )}
       {hasNoModels && (
         <Alert
           type="warning"
@@ -245,7 +304,7 @@ export default function TeamDrawer({
             placeholder={t("experts.welcomeMessagePlaceholder")}
           />
         </Form.Item>
-        <Form.Item name="default_model" label={t("experts.defaultModelLabel")}>
+        <Form.Item name="default_model" label={t("experts.teams.hostModel")}>
           <Select
             loading={modelsLoading}
             options={buildModelSelectOptions(
@@ -257,6 +316,24 @@ export default function TeamDrawer({
             optionFilterProp="label"
           />
         </Form.Item>
+        <Form.Item
+          name="system_prompt"
+          label={t("experts.teams.hostPrompt")}
+          extra={t("experts.teams.hostPromptHint")}
+        >
+          <Input.TextArea rows={6} maxLength={200000} />
+        </Form.Item>
+        <Button
+          onClick={() =>
+            Modal.confirm({
+              title: t("experts.teams.resetPrompt"),
+              content: t("experts.teams.hostPromptHint"),
+              onOk: () => form.setFieldValue("system_prompt", ""),
+            })
+          }
+        >
+          {t("experts.teams.resetPrompt")}
+        </Button>
         <Form.Item
           name="member_ids"
           label={t("experts.teams.members")}
@@ -273,7 +350,118 @@ export default function TeamDrawer({
         >
           <TeamMemberPicker experts={pickerExperts} />
         </Form.Item>
+        <Button
+          onClick={async () => {
+            try {
+              setSourceTeams(
+                (await teamsApi.list()).filter(
+                  (item) => item.agent_id !== team?.agent_id,
+                ),
+              );
+              setSourceId(undefined);
+              setSourceMembers([]);
+              setCopyModels(false);
+              setSourceOpen(true);
+            } catch (err) {
+              message.error(apiErrorMessage(err, t("experts.createFailed"), t));
+            }
+          }}
+        >
+          {t("experts.teams.addFromTeam")}
+        </Button>
+        <Alert
+          type="info"
+          showIcon
+          message={t("experts.teams.memberReferenceHint")}
+          style={{ margin: "12px 0" }}
+        />
+        {selectedMembers.map((id: string) => (
+          <Form.Item
+            key={id}
+            name={["member_models", id]}
+            label={t("experts.teams.memberModel", {
+              name:
+                pickerExperts.find((item) => item.agent_id === id)?.name ?? id,
+            })}
+          >
+            <Select
+              loading={modelsLoading}
+              options={buildModelSelectOptions(
+                models,
+                t("experts.teams.inheritModel"),
+              )}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+            />
+          </Form.Item>
+        ))}
       </Form>
+      <Modal
+        open={sourceOpen}
+        title={t("experts.teams.addFromTeam")}
+        onCancel={() => setSourceOpen(false)}
+        onOk={() => {
+          const source = sourceTeams.find((item) => item.agent_id === sourceId);
+          if (!source) return;
+          const existing: string[] = form.getFieldValue("member_ids") ?? [];
+          const additions = sourceMembers.filter(
+            (id) => !existing.includes(id),
+          );
+          setRosterExtras((old) =>
+            mergeTeamPickerExperts(
+              old,
+              source.members
+                .filter((item) => additions.includes(item.agent_id))
+                .map((item) => ({ ...item, kind: "expert", is_owner: true })),
+            ),
+          );
+          const overrides = { ...(form.getFieldValue("member_models") ?? {}) };
+          if (copyModels)
+            for (const id of additions)
+              if (source.member_models?.[id])
+                overrides[id] = source.member_models[id];
+          form.setFieldsValue({
+            member_ids: [...existing, ...additions],
+            member_models: overrides,
+          });
+          setSourceOpen(false);
+        }}
+        okButtonProps={{ disabled: !sourceMembers.length }}
+      >
+        <Select
+          style={{ width: "100%", marginBottom: 12 }}
+          value={sourceId}
+          options={sourceTeams.map((item) => ({
+            label: item.name,
+            value: item.agent_id,
+          }))}
+          onChange={(id) => {
+            setSourceId(id);
+            setSourceMembers([]);
+          }}
+        />
+        <Checkbox.Group
+          value={sourceMembers}
+          onChange={(ids) => setSourceMembers(ids as string[])}
+          options={(
+            sourceTeams.find((item) => item.agent_id === sourceId)?.members ??
+            []
+          ).map((item) => ({
+            label: item.name,
+            value: item.agent_id,
+            disabled: selectedMembers.includes(item.agent_id),
+          }))}
+        />
+        <div style={{ marginTop: 12 }}>
+          <Checkbox
+            checked={copyModels}
+            onChange={(event) => setCopyModels(event.target.checked)}
+          >
+            {t("experts.teams.copyModels")}
+          </Checkbox>
+        </div>
+      </Modal>
 
       <div style={{ marginTop: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>

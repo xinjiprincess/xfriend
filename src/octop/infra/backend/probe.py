@@ -10,8 +10,6 @@ import tempfile
 import uuid
 from typing import Any, cast
 
-from octop_harness.backends.probe import probe_backend
-
 from octop.infra.backend.adapter import row_to_backend_spec
 from octop.infra.backend.docker_spec import (
     DEFAULT_SANDBOX_PREFIX,
@@ -23,6 +21,13 @@ logger = logging.getLogger(__name__)
 
 _PROBE_CONTENT = "octop-docker-probe"
 _PROBE_TEST_ID = "test"
+
+
+def probe_backend(spec: dict[str, Any]) -> dict[str, Any]:
+    """Load the harness probe only when an explicit connection test runs."""
+    from octop_harness.backends.probe import probe_backend as harness_probe
+
+    return harness_probe(spec)
 
 
 def row_for_probe(

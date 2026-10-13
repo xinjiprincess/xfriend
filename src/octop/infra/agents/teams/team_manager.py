@@ -30,6 +30,7 @@ from octop_harness.teams.util import (
 )
 
 from octop.i18n import tr
+from octop.infra.agents.teams.configuration import member_models
 from octop.infra.agents.teams.service import is_team_agent
 from octop.infra.agents.threads.artifact import artifact_path_allowed, extract_artifact_paths
 from octop.infra.gateway.media.tool_media import tool_name_base
@@ -116,6 +117,7 @@ class TeamManager:
         self._gateway = gateway
         self._peer_prompts: dict[tuple[str, str], tuple[str, str]] = {}
         self._live_host_replies: set[str] = set()
+        self._room_model_snapshots: dict[tuple[str, str], dict[str, str]] = {}
 
     def replace_thread_message_repo(self, repo: Any) -> None:
         self._thread_message_repo = repo
@@ -498,6 +500,9 @@ class TeamManager:
         if not is_team_agent(row):
             return
         cfg = dict(request.get("configurable") or {})
+        thread_id = request.get("thread_id") or cfg.get("thread_id")
+        if isinstance(thread_id, str) and thread_id:
+            self._room_model_snapshots[(agent_id, thread_id)] = member_models(row)
         cfg["peer_invoke_mode"] = "async"
         cfg.pop("mcp_use_default", None)
         request["configurable"] = cfg
@@ -591,6 +596,12 @@ class TeamManager:
         extra: dict[str, Any] = {"peer_invoke_mode": "sync"}
         host = self._agent_manager.get_row(call.from_agent_id)
         if is_team_agent(host):
+            models = self._room_model_snapshots.get(
+                (call.from_agent_id, str(call.source_thread_id)), member_models(host)
+            )
+            model = models.get(call.to_agent_id)
+            if model:
+                extra["model"] = model
             extra["team_peers"] = [
                 member_id
                 for member_id in self._agent_manager.teams.member_ids(call.from_agent_id)

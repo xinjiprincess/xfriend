@@ -21,8 +21,10 @@ PREFERENCES_KEY_SIDEBAR_NAV = "sidebar_nav"
 # Keep in sync with dashboard/src/layouts/sidebarNav.tsx SIDEBAR_NAV_KEYS.
 SIDEBAR_NAV_KEYS = frozenset(
     {
+        "customers",
         "chat",
         "experts",
+        "engines",
         "tasks",
         "token-usage",
         "personalization",
@@ -30,10 +32,14 @@ SIDEBAR_NAV_KEYS = frozenset(
         "connectors",
         "skill-packages",
         "knowledge-bases",
+        "transfer",
+        "phone-connection",
         "bridge",
         "workbench",
         "remote-desktop",
         "acp",
+        "assistant-settings",
+        "platform-collaboration",
         "admin-users",
         "models",
         "admin-storage",

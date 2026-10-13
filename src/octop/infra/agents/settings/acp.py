@@ -8,8 +8,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from octop_harness.acp.models import ACPConfig, default_acp_runners
-
 from octop.infra.db.repos.agents import AgentRepo, AgentRow
 from octop.infra.db.repos.settings import SettingsRepo
 from octop.infra.utils.paths import PathLayout
@@ -151,6 +149,8 @@ class ACPSettingsStore:
 
 
 def _runners_response(raw_runners: dict[str, Any]) -> dict[str, Any]:
+    from octop_harness.acp.models import ACPConfig, default_acp_runners
+
     merged_raw = dict(raw_runners)
     harness_names = set(default_acp_runners())
     for name, spec in _OCTOP_BUILTIN_RUNNERS.items():

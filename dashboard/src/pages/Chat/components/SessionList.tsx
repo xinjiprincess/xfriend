@@ -17,7 +17,10 @@ import {
 } from "lucide-react";
 import type { Session } from "../hooks/useSessions";
 import type { OctopAgent } from "../../../context/AgentContext";
-import { isAgentChatReady } from "../../../utils/agentError";
+import {
+  isAgentChatReady,
+  isAgentHistoryReady,
+} from "../../../utils/agentError";
 import { showConfirmModal } from "../../../utils/confirmModal";
 import { ExpertIcon } from "../../Experts/components/iconForName";
 import { useHiddenSharedExperts } from "../hooks/useHiddenSharedExperts";
@@ -273,7 +276,7 @@ function ActiveAgentCard({
   }, [searchQuery, onFetchAllSessions]);
 
   const showExpandMore = hasMore && !searchQuery.trim();
-  const sessionsEnabled = isAgentChatReady(agent.state);
+  const sessionsEnabled = isAgentHistoryReady(agent.state, agent);
 
   return (
     <div
@@ -310,6 +313,7 @@ function ActiveAgentCard({
             <button
               type="button"
               className={styles.agentNewChatBtn}
+              disabled={!isAgentChatReady(agent.state, agent)}
               aria-label={t("chatWelcome.newChat")}
               title={t("chatWelcome.newChat")}
               onClick={(e) => {
@@ -562,7 +566,7 @@ export default function SessionList({
     () => sortedAgents.find((a) => a.agent_id === expandedAgentId) ?? null,
     [sortedAgents, expandedAgentId],
   );
-  const showSessions = isAgentChatReady(activeAgent?.state);
+  const showSessions = isAgentHistoryReady(activeAgent?.state, activeAgent);
 
   return (
     <div className={styles.sessionList}>

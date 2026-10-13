@@ -124,7 +124,9 @@ async def reload_plugins(
     disk install does not update the running server until reload or restart.
     """
     mgr = _plugin_manager(server)
-    loaded = mgr.load_installed(install_deps=True)
+    loaded = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: mgr.reload_installed(install_deps=True)
+    )
     if server.app_runtime is not None:
         await server.app_runtime.agent_registry.reload_all()
     return {

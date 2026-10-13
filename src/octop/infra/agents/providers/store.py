@@ -6,13 +6,13 @@ import json
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
 
-from octop_harness.config import ModelConfig, ProviderConfig
-
 from octop.infra.agents.providers.model_flags import is_chat_eligible_model, is_vision_model
 from octop.infra.agents.providers.opencode_session import session_header_for_provider
 from octop.infra.agents.providers.reasoning import reasoning_capability
 
 if TYPE_CHECKING:
+    from octop_harness.config import ModelConfig, ProviderConfig
+
     from octop.infra.db.repos.agents import AgentRow
     from octop.infra.db.repos.providers import ProviderRepo
 
@@ -129,6 +129,8 @@ class ProviderStore:
         return next(self.iter_usable_rows(), None) is not None
 
     def build_harness_configs(self) -> list[ProviderConfig]:
+        from octop_harness.config import ProviderConfig
+
         out: list[ProviderConfig] = []
         for row in self.iter_usable_rows():
             protocol = KIND_TO_PROTOCOL.get(row.kind, "openai")
@@ -164,6 +166,8 @@ class ProviderStore:
 
     @staticmethod
     def _model_config_from_row(raw: dict[str, object]) -> ModelConfig:
+        from octop_harness.config import ModelConfig
+
         data = dict(raw)
         model_id = str(data.get("id") or "")
         explicit = data.get("input")

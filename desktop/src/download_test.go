@@ -13,6 +13,26 @@ import (
 	"time"
 )
 
+func TestWaitHealthAcceptsCoreBeforeAgentRestoration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"application":"xfriend","protocol":1,"ready":false,"core_ready":true,"agents_ready":false,"agents_pending":3}`))
+	}))
+	defer server.Close()
+	if err := waitHealth(LocaleZH, server.URL, time.Second); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWaitHealthDoesNotAcceptBootingCore(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"application":"xfriend","protocol":1,"ready":false,"core_ready":false}`))
+	}))
+	defer server.Close()
+	if err := waitHealth(LocaleZH, server.URL, 50*time.Millisecond); err == nil {
+		t.Fatal("unready core passed the desktop readiness gate")
+	}
+}
+
 func TestEnsurePortableUsesEmbeddedPackage(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("OCTOP_HOME", home)
@@ -653,7 +673,7 @@ func TestWaitHealthTimesOutWithFriendlyMessage(t *testing.T) {
 	}
 }
 
-func writeTestGreenZip(t *testing.T, path, version string) {
+func writeTestGreenZip(t *testing.T, path, version string, dashboard ...string) {
 	t.Helper()
 	f, err := os.Create(path)
 	if err != nil {
@@ -664,6 +684,9 @@ func writeTestGreenZip(t *testing.T, path, version string) {
 		"Octop-test/launch.py",
 		"Octop-test/VERSION.txt",
 		"Octop-test/packages/octop-" + version + ".dist-info/METADATA",
+	}
+	if len(dashboard) > 0 {
+		files = append(files, "Octop-test/packages/octop/dashboard/index.html")
 	}
 	if runtime.GOOS == "windows" {
 		files = append(files, "Octop-test/runtime/python.exe")
@@ -680,6 +703,8 @@ func writeTestGreenZip(t *testing.T, path, version string) {
 			content = []byte("platform=test\noctop_version=" + version + "\n")
 		} else if strings.HasSuffix(name, "/METADATA") {
 			content = []byte("Name: octop\nVersion: " + version + "\n")
+		} else if strings.HasSuffix(name, "/dashboard/index.html") {
+			content = []byte(dashboard[0])
 		} else if strings.HasSuffix(name, "/python3") {
 			header.SetMode(os.ModeSymlink | 0o755)
 			content = []byte("python3.12")

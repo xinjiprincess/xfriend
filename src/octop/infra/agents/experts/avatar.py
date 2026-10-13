@@ -7,8 +7,6 @@ from contextlib import suppress
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
-from octop_harness.backends.utils import BackendOperationNotSupportedError
-
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.media.attachment_hints import sniff_image_media_type
 
@@ -92,6 +90,8 @@ async def _download_avatar_bytes(workspace: WorkspaceAvatarIO, relpath: str) -> 
 
 
 async def write_workspace_avatar(workspace: WorkspaceAvatarIO, data: bytes) -> str:
+    from octop_harness.backends.utils import BackendOperationNotSupportedError
+
     media_type = sniff_avatar_media_type(data)
     dest = avatar_relpath_for_media(media_type)
     await delete_workspace_avatar(workspace)

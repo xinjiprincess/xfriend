@@ -12,6 +12,122 @@ afterEach(() => {
 });
 
 describe("history failures", () => {
+  it("retries startup-blocked history once the expert becomes ready", async () => {
+    const history = vi
+      .spyOn(octopThreadsApi, "history")
+      .mockRejectedValueOnce(
+        new Error('HTTP 503: {"error":{"code":"SERVICE_STARTING"}}'),
+      )
+      .mockResolvedValue({
+        thread_id: thread,
+        messages: [{ id: "old", role: "user", content: "saved conversation" }],
+        has_more: false,
+      });
+    vi.spyOn(chatStore, "attachThread").mockResolvedValue(undefined);
+    const { result, rerender } = renderHook(
+      ({ ready }) => useChat(thread, "agent", false, ready),
+      { initialProps: { ready: false } },
+    );
+    await act(async () => {
+      await result.current.loadHistory(thread);
+    });
+    expect(result.current.historyError).toBe(true);
+    expect(history).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      rerender({ ready: true });
+    });
+    expect(history).toHaveBeenCalledTimes(2);
+    expect(result.current.historyError).toBe(false);
+    expect(result.current.messages[0].content).toBe("saved conversation");
+  });
+
+  it("does not retry unrelated history failures or replace loaded pages on readiness", async () => {
+    chatStore.setHistoryPage(
+      thread,
+      [{ id: "old", role: "user", content: "older page", timestamp: 1 }],
+      { hasMore: true, nextOffset: 50, nextCursor: "kept-cursor" },
+    );
+    const history = vi
+      .spyOn(octopThreadsApi, "history")
+      .mockRejectedValue(new Error("archive unavailable"));
+    const { result, rerender } = renderHook(
+      ({ ready }) => useChat(thread, "agent", false, ready),
+      { initialProps: { ready: false } },
+    );
+    await act(async () => {
+      await result.current.refreshHistory();
+    });
+    await act(async () => {
+      rerender({ ready: true });
+    });
+    expect(history).toHaveBeenCalledTimes(1);
+    expect(result.current.historyError).toBe(true);
+    expect(result.current.messages[0].content).toBe("older page");
+    expect(chatStore.getSnapshot(thread).historyNextCursor).toBe("kept-cursor");
+  });
+
+  it("retries a startup-blocked older page using its original cursor", async () => {
+    chatStore.setHistoryPage(
+      thread,
+      [{ id: "new", role: "user", content: "latest", timestamp: 1 }],
+      { hasMore: true, nextOffset: 25, nextCursor: "original-boundary" },
+    );
+    const history = vi
+      .spyOn(octopThreadsApi, "history")
+      .mockRejectedValueOnce(
+        new Error('HTTP 503: {"error":{"code":"SERVICE_STARTING"}}'),
+      )
+      .mockResolvedValue({
+        thread_id: thread,
+        messages: [{ id: "old", role: "user", content: "older" }],
+        has_more: false,
+      });
+    const { result, rerender } = renderHook(
+      ({ ready }) => useChat(thread, "agent", false, ready),
+      { initialProps: { ready: false } },
+    );
+    await act(async () => {
+      await result.current.loadMoreHistory();
+    });
+    await act(async () => {
+      rerender({ ready: true });
+    });
+    expect(history).toHaveBeenCalledTimes(2);
+    expect(history).toHaveBeenLastCalledWith(
+      "agent",
+      thread,
+      expect.objectContaining({ cursor: "original-boundary" }),
+    );
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "older",
+      "latest",
+    ]);
+  });
+
+  it("does not loop if the readiness retry still returns SERVICE_STARTING", async () => {
+    const history = vi
+      .spyOn(octopThreadsApi, "history")
+      .mockRejectedValue(
+        new Error('HTTP 503: {"error":{"code":"SERVICE_STARTING"}}'),
+      );
+    const { result, rerender } = renderHook(
+      ({ ready }) => useChat(thread, "agent", false, ready),
+      { initialProps: { ready: false } },
+    );
+    await act(async () => {
+      await result.current.loadHistory(thread);
+    });
+    await act(async () => {
+      rerender({ ready: true });
+    });
+    expect(history).toHaveBeenCalledTimes(2);
+    expect(result.current.historyError).toBe(true);
+    await act(async () => {
+      rerender({ ready: true });
+    });
+    expect(history).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps a loaded conversation and its cursor when refreshing fails", async () => {
     chatStore.setHistoryPage(
       thread,
@@ -123,5 +239,46 @@ describe("history failures", () => {
     expect(
       chatStore.getSnapshot(thread).messages.map((m) => m.content),
     ).toEqual(["older", "latest"]);
+  });
+});
+
+describe("execution while reading startup history", () => {
+  it("keeps messages unchanged and sends no task or approval until the expert is ready", async () => {
+    chatStore.setHistoryPage(
+      thread,
+      [{ id: "old", role: "user", content: "saved text", timestamp: 1 }],
+      { hasMore: false, nextOffset: 1, nextCursor: null },
+    );
+    const send = vi.spyOn(chatStore, "sendTurn").mockResolvedValue(undefined);
+    const resume = vi
+      .spyOn(chatStore, "resumeHitl")
+      .mockResolvedValue(undefined);
+    const { result, rerender } = renderHook(
+      ({ ready }) => useChat(thread, "agent", false, ready),
+      { initialProps: { ready: false } },
+    );
+    await act(async () => {
+      result.current.sendMessage("new task", "", "agent");
+      result.current.editAndResend("old", "changed", "", "agent");
+      result.current.resumeHitl([{ type: "approve" }]);
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(resume).not.toHaveBeenCalled();
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "saved text",
+    ]);
+    await act(async () => {
+      rerender({ ready: true });
+    });
+    await act(async () => {
+      result.current.sendMessage("new task", "", "agent");
+      result.current.resumeHitl([{ type: "approve" }]);
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "saved text",
+      "new task",
+    ]);
   });
 });

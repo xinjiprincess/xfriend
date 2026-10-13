@@ -5,6 +5,7 @@ import Sidebar from "../Sidebar";
 import Header from "../Header";
 import RailEdgeControl from "../../components/RailEdgeControl";
 import PageLoading from "../../components/PageLoading";
+import RuntimeStartupBanner from "../../components/RuntimeStartupBanner";
 import { ServiceRestartProvider } from "../../context/ServiceRestartContext";
 import { BackupOperationProvider } from "../../context/BackupOperationContext";
 import PwaUpdatePrompt from "../../components/PwaUpdatePrompt";
@@ -284,6 +285,7 @@ export default function MainLayout() {
                 minHeight: 0,
               }}
             >
+              <RuntimeStartupBanner />
               <Content
                 className="page-container"
                 style={{

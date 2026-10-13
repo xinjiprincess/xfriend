@@ -50,6 +50,12 @@ from octop.infra.agents.settings.profile import (
     parse_config_json,
     strip_profile_config,
 )
+from octop.infra.agents.settings.profile import (
+    skill_package_ids_list as skill_package_ids_list,
+)
+from octop.infra.agents.settings.profile import (
+    skills_disabled_set as skills_disabled_set,
+)
 from octop.infra.agents.settings.runtime_limits import (
     AGENT_RUNTIME_CONFIG_KEYS,
     apply_agent_runtime_to_stream_request,
@@ -109,6 +115,7 @@ def _model_retry_on_failure(exc: Exception) -> str:
 _PROVIDER_RELOAD_CONCURRENCY = 6
 # One hung remote backend must not block ``octop run`` from serving HTTP.
 _AGENT_BOOT_START_TIMEOUT = 60.0
+_AGENT_BOOT_CONCURRENCY = 3
 
 # octop-memory builds SQLite table names as ``{namespace}_*``. The namespace
 # must be a valid bare SQL identifier: start with a letter, only [A-Za-z0-9_].
@@ -123,27 +130,11 @@ def _memory_namespace(agent_id: str) -> str:
     return f"{_MEMORY_NS_PREFIX}{agent_id}"
 
 
-def skills_disabled_set(cfg: dict[str, Any]) -> set[str]:
-    """Return the set of disabled skill slugs from agent config."""
-    raw = cfg.get("skills_disabled")
-    if isinstance(raw, list):
-        return {str(x) for x in raw}
-    return set()
-
-
 def tools_disabled_set(cfg: dict[str, Any]) -> set[str]:
     """Return disabled built-in tool names from agent config (critical stripped)."""
     from octop.infra.agents.settings.tool_catalog import tools_disabled_set as _tools_disabled_set
 
     return _tools_disabled_set(cfg)
-
-
-def skill_package_ids_list(cfg: dict[str, Any]) -> list[str]:
-    """Return non-empty skill package ids from agent config."""
-    raw = cfg.get("skill_package_ids")
-    if not isinstance(raw, list):
-        return []
-    return [str(item) for item in raw if str(item).strip()]
 
 
 def _memory_aux_model_settings(
@@ -399,6 +390,9 @@ class AgentManager:
         # Serialize start/reload per agent so parallel provider reloads cannot
         # double-register the same harness id ("already exists in the registry").
         self._agent_lifecycle_locks: dict[str, asyncio.Lock] = {}
+        self._startup_tasks: dict[str, asyncio.Task[None]] = {}
+        self._startup_limit = asyncio.Semaphore(_AGENT_BOOT_CONCURRENCY)
+        self._restore_scheduled = False
         # Serialize harness execution per thread. Dashboard turns are queued by
         # the channel debounce lock, but POST /chat/hitl/resume (and cron)
         # drive the same checkpoint without it — two concurrent executions on
@@ -491,7 +485,9 @@ class AgentManager:
     def teams(self) -> Any:
         return self._teams
 
-    async def boot(self) -> None:
+    async def boot(self, *, restore_agents: bool = True) -> None:
+        self._restore_scheduled = False
+        self._upgrade_default_assistant_names()
         self._tool_guard_rules.ensure_seeded()
         providers = self._providers.build_harness_configs()
         self._harness_manager = HarnessAgentManager(
@@ -511,13 +507,54 @@ class AgentManager:
             self._install_team_host_dispatch()
             self._harness_manager.set_security_policy(self._security.harness_policy())
 
+        if restore_agents:
+            self.begin_agent_restore()
+            await self.wait_for_agent_restore()
+
+    @property
+    def agents_pending(self) -> int:
+        return sum(not task.done() for task in self._startup_tasks.values())
+
+    def agent_startup_pending(self, agent_id: str) -> bool:
+        task = self._startup_tasks.get(agent_id)
+        return task is not None and not task.done()
+
+    def begin_agent_restore(self) -> None:
+        """Schedule bounded restoration; callers can await just the expert they need."""
+        if self._restore_scheduled:
+            return
+        self._restore_scheduled = True
         rows = self._repos.agent_repo.list_all(include_disabled=False)
+        recent = self._repos.session_repo.recent_agent_ids()
+        priority = {agent_id: rank for rank, agent_id in enumerate(recent)}
+        # Resume recent conversations and the built-in assistant before older
+        # experts consume the bounded boot slots.
+        rows.sort(
+            key=lambda row: priority.get(
+                row.agent_id, len(priority) + (row.template_name != "general-assistant")
+            )
+        )
         for row in rows:
             if row.last_state == "stopped":
                 continue
+            self._startup_tasks[row.agent_id] = asyncio.create_task(
+                self._restore_agent(row.agent_id), name=f"agent-restore:{row.agent_id}"
+            )
+
+    async def wait_for_agent_restore(self) -> None:
+        tasks = list(self._startup_tasks.values())
+        if tasks:
+            await asyncio.gather(*(asyncio.shield(task) for task in tasks))
+
+    async def _restore_agent(self, agent_id: str) -> None:
+        async with self._startup_limit:
+            # A user may stop/delete an expert while it is waiting for a slot.
+            row = self._repos.agent_repo.get(agent_id)
+            if row is None or not row.enabled or row.last_state == "stopped":
+                return
             try:
                 await asyncio.wait_for(
-                    self._start_agent(row),
+                    self._start_agent(row, restoring=True),
                     timeout=_AGENT_BOOT_START_TIMEOUT,
                 )
             except TimeoutError:
@@ -528,7 +565,7 @@ class AgentManager:
                         row.agent_id,
                         _AGENT_BOOT_START_TIMEOUT,
                     )
-                    continue
+                    return
                 logger.error(
                     "Agent %s start timed out after %.0fs; continuing boot",
                     row.agent_id,
@@ -540,7 +577,67 @@ class AgentManager:
                     error=AGENT_START_TIMEOUT,
                 )
 
+    async def ensure_agent_runtime(self, agent_id: str) -> HarnessAgent:
+        """Join startup without restarting explicitly stopped or failed experts.
+
+        Shield the shared restore from cancellation of an HTTP/IM request. Team
+        hosts need their roster registered before the first dispatch lists peers.
+        """
+        await self.wait_for_agent_startup(agent_id)
+        # Configuration reload temporarily removes the runtime while rebuilding.
+        # Join that lifecycle operation before resolving the conversation target.
+        async with self._lifecycle_lock_for(agent_id):
+            return self.get_agent(agent_id)
+
+    async def wait_for_agent_startup(self, agent_id: str) -> None:
+        """Wait only for startup; preserve callers' stopped/rebuild-gap behavior."""
+        if not self._restore_scheduled and self._harness_manager is not None:
+            self.begin_agent_restore()
+        pending = self._startup_tasks.get(agent_id)
+        if pending is not None:
+            await asyncio.shield(pending)
+        row = self._repos.agent_repo.get(agent_id)
+        if row is not None and row.kind == "team":
+            for member_id in self._teams.member_ids(agent_id):
+                task = self._startup_tasks.get(member_id)
+                if task is not None:
+                    await asyncio.shield(task)
+
+    def _upgrade_default_assistant_names(self) -> None:
+        from octop.infra.agents.experts.assistant_upgrade import (
+            ASSISTANT_NAMES,
+            ASSISTANT_TEMPLATE_ID,
+            LEGACY_ASSISTANT_NAMES,
+        )
+
+        rows = self._repos.agent_repo.list_all(include_disabled=True)
+        occupied = {(row.user_id, row.name) for row in rows}
+        for row in rows:
+            locale = LEGACY_ASSISTANT_NAMES.get(row.name)
+            if row.template_name != ASSISTANT_TEMPLATE_ID or locale is None:
+                continue
+            name = ASSISTANT_NAMES[locale]
+            if (row.user_id, name) in occupied:
+                name = f"{name} · {row.agent_id}"
+            if (row.user_id, name) in occupied:
+                continue
+            self._repos.agent_repo.update_config(row.agent_id, name=name)
+            occupied.discard((row.user_id, row.name))
+            occupied.add((row.user_id, name))
+
+    async def cancel_agent_restore(self) -> None:
+        # Close admission before draining: IM ingress may still be shutting
+        # down, and a late request must not schedule another restoration wave.
+        self._restore_scheduled = True
+        tasks = list(self._startup_tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._startup_tasks.clear()
+
     async def shutdown(self) -> None:
+        await self.cancel_agent_restore()
         await self.memory_slim.close()
         async with self._lock:
             if self._harness_manager:
@@ -600,6 +697,7 @@ class AgentManager:
         spec: AgentCreateSpec,
         *,
         defer_bootstrap: bool = False,
+        start_runtime: bool = True,
         workspace_initializer: Callable[[AgentRow, Any], Awaitable[None]] | None = None,
     ) -> AgentRow:
         """Create a new agent, persist to DB, and register with harness."""
@@ -707,6 +805,12 @@ class AgentManager:
             )
             row = self._repos.agent_repo.get(agent_id)
             assert row is not None
+            if not start_runtime:
+                # Transfer staging: invisible to enabled-agent scans and never booted.
+                self._repos.agent_repo.set_enabled(agent_id, False)
+                self._repos.agent_repo.set_state(agent_id, "stopped")
+                row = self._repos.agent_repo.get(agent_id)
+                assert row is not None
             if spec.is_shared:
                 self._repos.agent_repo.set_shared(agent_id, True)
                 row = self._repos.agent_repo.get(agent_id)
@@ -734,7 +838,9 @@ class AgentManager:
                 except Exception:
                     await self._abort_incomplete_create(agent_id)
                     raise
-            if defer_bootstrap:
+            if not start_runtime:
+                pass
+            elif defer_bootstrap:
                 self._repos.agent_repo.set_state(agent_id, "starting")
                 row = self._repos.agent_repo.get(agent_id)
                 assert row is not None
@@ -767,7 +873,7 @@ class AgentManager:
             self._repos.audit_repo.write(
                 actor=ACTOR_SYSTEM, action="agent.create", target=agent_id, payload=spec.name
             )
-            if self._proactive_scheduler is not None:
+            if start_runtime and self._proactive_scheduler is not None:
                 self._proactive_scheduler.ensure_scheduled(agent_id)
             return row
 
@@ -905,32 +1011,35 @@ class AgentManager:
 
     async def delete(self, agent_id: str) -> None:
         """Remove agent from DB, harness runtime, and workspace directory."""
-        row = self._repos.agent_repo.get(agent_id)
-        if row is None:
-            raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
-        self._teams.assert_can_delete_agent(agent_id)
         from octop.infra.agents.teams import is_team_agent
 
         affected_teams: list[str] = []
-        workspace_dir = self.resolve_workspace_dir(agent_id, persist_if_missing=False)
-        async with self._lock:
+        async with self._lock, self._lifecycle_lock_for(agent_id):
+            row = self._repos.agent_repo.get(agent_id)
+            if row is None:
+                raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
+            self._teams.assert_can_delete_agent(agent_id)
+            workspace_dir = self.resolve_workspace_dir(agent_id, persist_if_missing=False)
             if not is_team_agent(row):
                 try:
                     affected_teams = self._teams.drop_member(agent_id)
                 except Exception:
                     logger.exception("failed to drop deleted expert %s from team rosters", agent_id)
             await asyncio.to_thread(self._quiesce_octop_memory, agent_id)
-            await self._harness_manager.aremove_agent(agent_id)  # type: ignore[union-attr]
-        self._plugin_tool_labels.pop(agent_id, None)
-        try:
-            if await asyncio.to_thread(workspace_dir.exists):
-                await asyncio.to_thread(shutil.rmtree, workspace_dir)
-        except OSError:
-            logger.exception("rmtree failed for %s; agent removed from DB anyway", workspace_dir)
-        self._repos.agent_repo.delete(agent_id)
-        if self._proactive_scheduler is not None:
-            self._proactive_scheduler.cancel(agent_id)
-        self._repos.audit_repo.write(actor=ACTOR_SYSTEM, action="agent.delete", target=agent_id)
+            if self._harness_manager is not None:
+                await self._harness_manager.aremove_agent(agent_id)
+            self._plugin_tool_labels.pop(agent_id, None)
+            try:
+                if await asyncio.to_thread(workspace_dir.exists):
+                    await asyncio.to_thread(shutil.rmtree, workspace_dir)
+            except OSError:
+                logger.exception(
+                    "rmtree failed for %s; agent removed from DB anyway", workspace_dir
+                )
+            self._repos.agent_repo.delete(agent_id)
+            if self._proactive_scheduler is not None:
+                self._proactive_scheduler.cancel(agent_id)
+            self._repos.audit_repo.write(actor=ACTOR_SYSTEM, action="agent.delete", target=agent_id)
         for team_id in affected_teams:
             try:
                 await self.reload(team_id)
@@ -943,6 +1052,15 @@ class AgentManager:
             row = self._repos.agent_repo.get(agent_id)
             if row is None:
                 raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
+            config = self.get_config(agent_id)
+            if config.get("transfer_import") and not row.default_model:
+                from octop.i18n import tr
+
+                owner = self._repos.user_repo.get(row.user_id) if row.user_id is not None else None
+                raise OctopError(
+                    ErrorCode.SLASH_BAD_ARGS,
+                    tr("transfer.model_missing", owner.locale if owner else "en"),
+                )
             await self._start_agent(row, init_workspace=False)
 
     def _lifecycle_lock_for(self, agent_id: str) -> asyncio.Lock:
@@ -980,7 +1098,8 @@ class AgentManager:
                 raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
             async with self._lifecycle_lock_for(agent_id):
                 await asyncio.to_thread(self._quiesce_octop_memory, agent_id)
-                await self._harness_manager.aremove_agent(agent_id)  # type: ignore[union-attr]
+                if self._octop_harness_or_none(agent_id) is not None:
+                    await self._harness_manager.aremove_agent(agent_id)  # type: ignore[union-attr]
                 self._repos.agent_repo.set_state(agent_id, "stopped", error=None)
 
     def _quiesce_octop_memory(self, agent_id: str) -> None:
@@ -1296,6 +1415,7 @@ class AgentManager:
         """Stream harness chunks (Langfuse tracing handled inside octop-harness)."""
         if self._harness_manager is None:
             raise self._unavailable_error(agent_id)
+        await self.wait_for_agent_startup(agent_id)
 
         thread_id = str(request.get("thread_id") or "")
         async with (
@@ -1313,6 +1433,7 @@ class AgentManager:
         """Non-streaming harness invocation (one-shot agent call)."""
         if self._harness_manager is None:
             raise self._unavailable_error(agent_id)
+        await self.wait_for_agent_startup(agent_id)
         async with self._track_invocation(agent_id):
             self._apply_pending_bootstrap_graph_refresh(agent_id)
             req = self._prepare_stream_request(agent_id, request)
@@ -1332,6 +1453,7 @@ class AgentManager:
         """Resume a paused HITL interrupt for *thread_id*."""
         if self._harness_manager is None:
             raise self._unavailable_error(agent_id)
+        await self.wait_for_agent_startup(agent_id)
         async with (
             self._thread_execution_lock(agent_id, thread_id),
             self._track_invocation(agent_id),
@@ -1444,6 +1566,16 @@ class AgentManager:
                     logger.exception("Parallel reload failed for agent %s", agent_id)
 
         await asyncio.gather(*(_one(agent_id) for agent_id in agent_ids))
+
+    async def refresh_provider_catalog(self) -> None:
+        """Sync configured models without starting/reloading any experts."""
+        if self._harness_manager is not None:
+            providers = await asyncio.to_thread(self._providers.build_harness_configs)
+            sync_providers_to_harness(
+                self._harness_manager,
+                providers,
+                shared_factory=self._harness_manager.shared_factory,
+            )
 
     async def on_provider_changed(
         self,
@@ -2558,13 +2690,18 @@ class AgentManager:
             logger.exception("Deferred bootstrap failed for agent %s", row.agent_id)
 
     async def _start_agent(
-        self, row: AgentRow, *, init_workspace: bool = True
+        self, row: AgentRow, *, init_workspace: bool = True, restoring: bool = False
     ) -> HarnessAgent | None:
         assert self._harness_manager is not None, "_start_agent called before boot()"
-        if self._harness_manager.shared_factory is None:
-            self._repos.agent_repo.set_state(row.agent_id, "failed", error=NO_MODELS_CONFIGURED)
-            return None
         async with self._lifecycle_lock_for(row.agent_id):
+            if restoring:
+                fresh = self._repos.agent_repo.get(row.agent_id)
+                if fresh is None or not fresh.enabled or fresh.last_state == "stopped":
+                    return None
+                row = fresh
+            if self._harness_manager.shared_factory is None:
+                self._repos.agent_repo.set_state(row.agent_id, "failed", error=NO_MODELS_CONFIGURED)
+                return None
             existing = self._octop_harness_or_none(row.agent_id)
             if existing is not None:
                 # Idempotent: a concurrent reload/boot may have already registered.
@@ -2575,6 +2712,7 @@ class AgentManager:
                     row.name,
                 )
                 return existing
+            creation: asyncio.Task[AgentEntry] | None = None
             try:
                 from octop.infra.agents.teams import is_team_agent  # noqa: PLC0415
 
@@ -2582,17 +2720,36 @@ class AgentManager:
                 # Team hosts already have AGENTS/SOUL/MEMORY from seed_team_template.
                 # Never let harness copy builtin skills just to strip them later.
                 seed_workspace = init_workspace and not is_team_agent(row)
-                entry = await self._harness_manager.acreate_agent(
-                    cfg,
-                    agent_id=row.agent_id,
-                    metadata=metadata,
-                    tags=tags,
-                    init_workspace=seed_workspace,
+                creation = asyncio.create_task(
+                    self._harness_manager.acreate_agent(
+                        cfg,
+                        agent_id=row.agent_id,
+                        metadata=metadata,
+                        tags=tags,
+                        init_workspace=seed_workspace,
+                    ),
+                    name=f"agent-create:{row.agent_id}",
                 )
+                # acreate_agent runs graph construction in a worker thread. A
+                # cancelled await cannot stop that thread or release this lock.
+                entry = await asyncio.shield(creation)
                 await self._post_start_agent(row, entry.agent, cfg, user_display=user_display)
                 self._repos.agent_repo.set_state(row.agent_id, "running", error=None)
                 logger.info("Agent %s (%s) started", row.agent_id, row.name)
                 return entry.agent
+            except asyncio.CancelledError:
+                if creation is not None:
+                    cleanup = asyncio.create_task(
+                        self._drain_cancelled_agent_creation(row.agent_id, creation),
+                        name=f"agent-create-cleanup:{row.agent_id}",
+                    )
+                    # A timeout followed by shutdown can cancel us more than
+                    # once. Keep the lifecycle lock until the worker is drained.
+                    while not cleanup.done():
+                        with suppress(asyncio.CancelledError):
+                            await asyncio.shield(cleanup)
+                    cleanup.result()
+                raise
             except Exception as exc:
                 recovered = self._octop_harness_or_none(row.agent_id)
                 if recovered is not None and self._is_already_registered_error(exc):
@@ -2609,6 +2766,17 @@ class AgentManager:
                     error=format_agent_start_error(exc),
                 )
                 return None
+
+    async def _drain_cancelled_agent_creation(
+        self, agent_id: str, creation: asyncio.Task[AgentEntry]
+    ) -> None:
+        try:
+            await creation
+        except Exception:
+            logger.exception("Agent %s creation failed while cancellation was draining", agent_id)
+        await asyncio.to_thread(self._quiesce_octop_memory, agent_id)
+        assert self._harness_manager is not None
+        await self._harness_manager.aremove_agent(agent_id)
 
     async def _post_start_agent(
         self,
@@ -2645,6 +2813,19 @@ class AgentManager:
         )
         if not team_host:
             ws = agent.workspace
+            from octop.infra.agents.experts.assistant_upgrade import (
+                upgrade_bundled_assistant,
+            )
+
+            upgraded = await upgrade_bundled_assistant(ws, template_name=row.template_name)
+            if upgraded:
+                logger.info("Agent %s: updated bundled assistant files=%s", row.agent_id, upgraded)
+                if any(path.endswith("skills/octop-assistant/SKILL.md") for path in upgraded):
+                    disabled = skills_disabled_set(self.get_config(row.agent_id))
+                    if "octop-assistant" in disabled:
+                        await self.persist_skills_disabled(
+                            row.agent_id, disabled | {"xfriend-assistant"}
+                        )
             try:
                 from octop.infra.agents.builtin_skills import (  # noqa: PLC0415
                     sync_octop_builtin_skills,
@@ -2652,13 +2833,13 @@ class AgentManager:
 
                 synced_skills = await sync_octop_builtin_skills(ws)
                 logger.info(
-                    "Agent %s: synced Octop built-in skills=%s",
+                    "Agent %s: synced Xfriend built-in skills=%s",
                     row.agent_id,
                     synced_skills,
                 )
             except Exception:
                 logger.warning(
-                    "Agent %s: failed to sync Octop built-in skills",
+                    "Agent %s: failed to sync Xfriend built-in skills",
                     row.agent_id,
                     exc_info=True,
                 )
@@ -3272,7 +3453,8 @@ class AgentManager:
 
         system_prompt = row.system_prompt
         memory: tuple[str, ...] | None = None
-        if not team_host and not bootstrap_marker_exists(ws):
+        bootstrap_enabled = not team_host and row.template_name != "general-assistant"
+        if bootstrap_enabled and not bootstrap_marker_exists(ws):
             system_prompt = None
             memory = ()
 
@@ -3380,7 +3562,7 @@ class AgentManager:
             mcp_server_configs=mcp_server_configs,
             tools=merged_tools or None,
             middleware=agent_middleware or None,
-            bootstrap_enabled=not team_host,
+            bootstrap_enabled=bootstrap_enabled,
             acp_runners=acp_config.runners,
             acp_delegate_enabled=bool(acp_raw.get("tool_enabled", False)),
             skills_disabled=frozenset(skills_disabled_set(cfg) | plugin_skills_disabled),

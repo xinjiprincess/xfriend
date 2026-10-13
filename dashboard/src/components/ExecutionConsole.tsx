@@ -19,22 +19,33 @@ import {
   type ExecutionExpert,
   type ExecutionTask,
   type ExecutionTaskSummary,
+  type DualEnginePlan,
 } from "../api/modules/execution";
 import { voiceApi, type AssistantVoicePreferences } from "../api/modules/voice";
 import { useVoiceOutput } from "../hooks/useVoiceOutput";
 import { useAssistantVoice } from "../pages/DesktopAssistant/useAssistantVoice";
 import ConversationExport from "./ConversationExport";
+import DualEngineBuilder from "./DualEngineBuilder";
 
 const activeStates = new Set(["queued", "running", "permission"]);
 export default function ExecutionConsole({
   compact = false,
+  dual = false,
 }: {
   compact?: boolean;
+  dual?: boolean;
 }) {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const [experts, setExperts] = useState<ExecutionExpert[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [plan, setPlan] = useState<DualEnginePlan>({
+    native_experts: [],
+    dsh_experts: [],
+    workspace: "",
+    summary_expert: "",
+    summary_engine: "native",
+  });
   const [tasks, setTasks] = useState<ExecutionTaskSummary[]>([]);
   const [task, setTask] = useState<ExecutionTask>();
   const [taskId, setTaskId] = useState<string>();
@@ -53,6 +64,14 @@ export default function ExecutionConsole({
   const read = useRef<string>();
   const viewingHistory = useRef(false);
   const active = Boolean(task && activeStates.has(task.state));
+  const ready = dual
+    ? Boolean(
+        plan.native_experts.length &&
+          plan.dsh_experts.length &&
+          plan.workspace.trim() &&
+          plan.summary_expert,
+      )
+    : selected.length > 0;
   const fail = useCallback(() => {
     message.error(t("execution.failed"));
   }, [message, t]);
@@ -67,7 +86,9 @@ export default function ExecutionConsole({
       .then(([items, history, target, prefs]) => {
         if (disposed) return;
         setExperts(items);
-        setTasks(history.reverse());
+        setTasks(
+          history.filter((item) => !dual || item.mode === "dual").reverse(),
+        );
         setPreferences(prefs);
         const requested = new URLSearchParams(window.location.search).get(
           "expert",
@@ -79,6 +100,33 @@ export default function ExecutionConsole({
                 items.some((expert) => expert.id === id),
               ),
         );
+        if (dual) {
+          const members = new URLSearchParams(window.location.search)
+            .getAll("member")
+            .filter((id) => items.some((item) => item.id === id));
+          const native = (
+            members.length
+              ? members
+              : items
+                  .filter((item) => item.engine === "native")
+                  .map((item) => item.id)
+          ).slice(0, 1);
+          const dsh = (
+            members.length > 1
+              ? members.slice(1)
+              : items
+                  .filter((item) => item.engine === "dsh")
+                  .map((item) => item.id)
+          ).slice(0, 3);
+          setPlan({
+            native_experts: native,
+            dsh_experts: dsh,
+            summary_expert: native[0] || "",
+            summary_engine: "native",
+            workspace:
+              items.find((item) => dsh.includes(item.id))?.workspace || "",
+          });
+        }
         if (compact)
           window.parent.postMessage(
             { type: "xfriend:preferences", wakeWord: target.wake_word },
@@ -89,7 +137,7 @@ export default function ExecutionConsole({
     return () => {
       disposed = true;
     };
-  }, [fail, compact]);
+  }, [fail, compact, dual]);
   useEffect(() => {
     if (!taskId) return;
     let disposed = false;
@@ -104,6 +152,26 @@ export default function ExecutionConsole({
         }
         setTask(value);
         setSelected(value.steps.map((step) => step.expert_id));
+        if (value.mode === "dual") {
+          const summary = value.steps.find((step) => step.phase === "summary");
+          setPlan({
+            native_experts: value.steps
+              .filter(
+                (step) => step.engine === "native" && step.phase !== "summary",
+              )
+              .map((step) => step.expert_id),
+            dsh_experts: value.steps
+              .filter(
+                (step) => step.engine === "dsh" && step.phase !== "summary",
+              )
+              .map((step) => step.expert_id),
+            workspace:
+              value.steps.find((step) => step.engine === "dsh")?.workspace ||
+              "",
+            summary_expert: summary?.expert_id || "",
+            summary_engine: summary?.engine === "dsh" ? "dsh" : "native",
+          });
+        }
         if (activeStates.has(value.state)) timer = setTimeout(poll, 500);
         else
           setTasks((items) => [
@@ -134,7 +202,7 @@ export default function ExecutionConsole({
     async (value: string) => {
       if (
         !value.trim() ||
-        !selected.length ||
+        !ready ||
         sending.current ||
         active ||
         (taskId && !task)
@@ -147,6 +215,8 @@ export default function ExecutionConsole({
         const result =
           task?.state === "succeeded"
             ? await executionApi.input(task.id, value)
+            : dual
+            ? await executionApi.createDual(plan, value)
             : await executionApi.create(selected, value);
         setTask(result);
         setTaskId(result.id);
@@ -158,7 +228,7 @@ export default function ExecutionConsole({
         setBusy(false);
       }
     },
-    [selected, active, task, taskId, stop, fail],
+    [selected, ready, dual, plan, active, task, taskId, stop, fail],
   );
   const recognized = useCallback(
     async (value: string) => {
@@ -271,19 +341,28 @@ export default function ExecutionConsole({
       {!compact && (
         <Alert type="info" showIcon message={t("execution.scope")} />
       )}
-      <Select
-        mode="multiple"
-        value={selected}
-        maxCount={4}
-        style={{ width: "100%" }}
-        disabled={active || busy || Boolean(task)}
-        placeholder={t("execution.select")}
-        onChange={setSelected}
-        options={experts.map((expert) => ({
-          value: expert.id,
-          label: `${expert.name} · ${expert.engine}`,
-        }))}
-      />
+      {dual ? (
+        <DualEngineBuilder
+          experts={experts}
+          value={plan}
+          onChange={setPlan}
+          disabled={active || busy || Boolean(task)}
+        />
+      ) : (
+        <Select
+          mode="multiple"
+          value={selected}
+          maxCount={4}
+          style={{ width: "100%" }}
+          disabled={active || busy || Boolean(task)}
+          placeholder={t("execution.select")}
+          onChange={setSelected}
+          options={experts.map((expert) => ({
+            value: expert.id,
+            label: `${expert.name} · ${expert.engine}`,
+          }))}
+        />
+      )}
       <Space wrap>
         <Button
           disabled={active || busy}
@@ -295,19 +374,21 @@ export default function ExecutionConsole({
         >
           {t("execution.new")}
         </Button>
-        <Button
-          disabled={!selected.length || busy}
-          onClick={() =>
-            void executionApi
-              .setAssistant(selected)
-              .then(() => message.success(t("execution.saved")))
-              .catch(fail)
-          }
-        >
-          {t("execution.default")}
-        </Button>
+        {!dual && (
+          <Button
+            disabled={!selected.length || busy}
+            onClick={() =>
+              void executionApi
+                .setAssistant(selected)
+                .then(() => message.success(t("execution.saved")))
+                .catch(fail)
+            }
+          >
+            {t("execution.default")}
+          </Button>
+        )}
       </Space>
-      {!compact && (
+      {!compact && !dual && (
         <Card size="small" title={t("execution.binding")}>
           <Space wrap>
             <Select
@@ -372,7 +453,10 @@ export default function ExecutionConsole({
             current={task.state === "succeeded" ? task.steps.length : task.step}
             status={task.state === "failed" ? "error" : "process"}
             items={task.steps.map((step) => ({
-              title: step.name,
+              title:
+                step.phase === "summary"
+                  ? `${t("engineHub.summary")} · ${step.name}`
+                  : step.name,
               description: `${step.engine} ${step.engine_version || ""}`,
             }))}
           />
@@ -431,7 +515,11 @@ export default function ExecutionConsole({
         renderItem={(item) => (
           <List.Item style={{ whiteSpace: "pre-wrap" }}>
             <div>
-              <Tag>{item.engine || item.role}</Tag>
+              <Tag color={item.phase === "summary" ? "green" : undefined}>
+                {item.phase === "summary"
+                  ? t("engineHub.finalResult")
+                  : item.engine || item.role}
+              </Tag>
               {item.content}
             </div>
           </List.Item>
@@ -526,7 +614,7 @@ export default function ExecutionConsole({
       <Space wrap>
         <Button
           type="primary"
-          disabled={active || !selected.length || !text.trim()}
+          disabled={active || !ready || !text.trim()}
           loading={busy}
           onClick={() => void send(text)}
         >

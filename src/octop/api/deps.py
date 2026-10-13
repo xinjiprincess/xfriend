@@ -30,6 +30,7 @@ _SLIDING_RENEW_REMAINING_FRACTION = 1 / 3
 
 # Paths that bypass JWT middleware (setup wizard, health, login).
 _JWT_EXEMPT_PREFIXES = (
+    "/api/licensing/",
     "/api/setup/",
     "/api/health/",
     "/api/i18n/",
@@ -39,6 +40,7 @@ _JWT_EXEMPT_PREFIXES = (
 _JWT_EXEMPT_EXACT = (
     "/api/health",
     "/api/auth/login",
+    "/api/auth/cloud-session",
     "/api/auth/captcha",
     "/api/auth/oidc/status",
     "/api/auth/oidc/start",
@@ -66,8 +68,8 @@ def is_jwt_exempt_request(request: Request) -> bool:
 
 def get_server(request: Request) -> OctopServer:
     server: OctopServer = request.app.state.octop_server
-    if not getattr(server, "_started", False):
-        raise OctopError(ErrorCode.INTERNAL_ERROR, "server not started")
+    if not getattr(server, "_started", False) and request.url.path != "/api/health":
+        raise OctopError(ErrorCode.SERVICE_STARTING, "server is starting", status=503)
     return server
 
 

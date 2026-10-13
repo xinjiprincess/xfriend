@@ -249,6 +249,21 @@ async def test_ws_emits_chunks_then_done(env: Any) -> None:
     assert chunks[-1]["type"] == "done"
 
 
+@pytest.mark.parametrize("query", ["", "?token=desktop-cloud"])
+async def test_desktop_header_auth_streams_expert_reply(env: Any, query: str) -> None:
+    c, _srv, _fake, alice_auth, _bob_auth, aid = env
+    async with ws_connect(
+        c._octop_app, f"/api/agents/{aid}/chat/ws{query}", headers=alice_auth
+    ) as ws:
+        await ws.send_json({"type": "user_turn", "text": "Hello"})
+        frames = await ws.drain_turn()
+    assert (
+        "".join(frame.get("content", "") for frame in frames if frame.get("type") == "token")
+        == "Hello Bob."
+    )
+    assert frames[-1]["type"] == "done"
+
+
 async def test_ws_disconnect_does_not_cancel_active_turn(env: Any) -> None:
     c, srv, _fake, alice_auth, _bob_auth, aid = env
     agent = srv.app_runtime.agent_registry.get_agent(aid)

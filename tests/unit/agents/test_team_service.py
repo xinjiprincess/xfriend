@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -190,3 +191,87 @@ async def test_seed_team_template_writes_octop_manifest() -> None:
     data = json.loads(raw.decode("utf-8"))
     assert data["kind"] == "team"
     assert data["members"] == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_team_configuration_revision_models_and_clear(team_env: dict[str, object]) -> None:
+    teams = team_env["teams"]
+    repos = team_env["repos"]
+    assert isinstance(teams, TeamService)
+    assert isinstance(repos, RepoBundle)
+    repos.provider_repo.create(name="p", kind="openai", models_json='[{"id":"model/a"}]')
+    teams.replace_members("host", ["a", "b"])
+
+    async def update(agent_id: str, **changes: object) -> object:
+        repos.agent_repo.update_config(agent_id, **changes)
+        return repos.agent_repo.get(agent_id)
+
+    manager = SimpleNamespace(get_row=repos.agent_repo.get, update=update)
+    original = teams.team_payload(repos.agent_repo.get("host"))
+    row = await teams.update_configuration(
+        manager,
+        team_env["user"],
+        "host",
+        {
+            "system_prompt": "先分工，再审核",
+            "member_models": {"a": "p/model/a"},
+        },
+        original["revision"],
+    )
+    current = teams.team_payload(row)
+    assert current["system_prompt"] == "先分工，再审核"
+    assert current["member_models"] == {"a": "p/model/a"}
+    assert current["revision"] != original["revision"]
+    assert repos.agent_repo.get("a").default_model is None
+    with pytest.raises(OctopError) as conflict:
+        await teams.update_configuration(
+            manager, team_env["user"], "host", {"system_prompt": "stale"}, original["revision"]
+        )
+    assert conflict.value.code is ErrorCode.TEAM_CONFIG_CONFLICT
+    cleared = await teams.update_configuration(
+        manager,
+        team_env["user"],
+        "host",
+        {"system_prompt": None, "default_model": None, "member_models": {}},
+        current["revision"],
+    )
+    assert cleared.system_prompt is None
+    assert teams.team_payload(cleared)["member_models"] == {}
+
+
+@pytest.mark.asyncio
+async def test_invalid_model_rejected_before_roster_write(team_env: dict[str, object]) -> None:
+    teams = team_env["teams"]
+    repos = team_env["repos"]
+    assert isinstance(teams, TeamService)
+    assert isinstance(repos, RepoBundle)
+    teams.replace_members("host", ["a", "b"])
+    manager = SimpleNamespace(get_row=repos.agent_repo.get, update=AsyncMock())
+    with pytest.raises(OctopError) as failure:
+        await teams.update_configuration(
+            manager,
+            team_env["user"],
+            "host",
+            {"member_ids": ["a", "c"], "member_models": {"a": "missing/model"}},
+            None,
+        )
+    assert failure.value.code is ErrorCode.TEAM_MODEL_INVALID
+    assert teams.member_ids("host") == ["a", "b"]
+    manager.update.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_failed_team_save_restores_roster(team_env: dict[str, object]) -> None:
+    teams = team_env["teams"]
+    repos = team_env["repos"]
+    assert isinstance(teams, TeamService)
+    assert isinstance(repos, RepoBundle)
+    teams.replace_members("host", ["a", "b"])
+    manager = SimpleNamespace(
+        get_row=repos.agent_repo.get, update=AsyncMock(side_effect=RuntimeError("write failed"))
+    )
+    with pytest.raises(RuntimeError, match="write failed"):
+        await teams.update_configuration(
+            manager, team_env["user"], "host", {"member_ids": ["a", "c"]}, None
+        )
+    assert teams.member_ids("host") == ["a", "b"]

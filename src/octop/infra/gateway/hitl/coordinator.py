@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from octop_gateway.models import MessageEvent
-from octop_harness.slash import SlashCommand
 
 from octop.i18n.domains.slash import tr
 from octop.infra.agents.security.hitl_session import HitlSessionPolicyStore
@@ -26,6 +25,8 @@ from octop.infra.gateway.slash.formatting import markdown_bullets
 from octop.infra.utils.locale import Locale, normalize_locale
 
 if TYPE_CHECKING:
+    from octop_harness.slash import SlashCommand
+
     from octop.infra.agents.manager import AgentManager
     from octop.infra.gateway.slash.ctx import SlashCtx
 

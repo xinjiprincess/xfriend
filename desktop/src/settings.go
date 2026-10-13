@@ -17,12 +17,13 @@ const (
 
 // Settings is persisted at ~/.xfriend/desktop-settings.json.
 type Settings struct {
-	Locale         Locale `json:"locale"`
-	Autostart      bool   `json:"autostart"`
-	MinimizeToTray bool   `json:"minimizeToTray"`
-	PreventSleep   bool   `json:"preventSleep"`
-	Port           int    `json:"port,omitempty"`
-	WakeWord       string `json:"wakeWord"`
+	Locale           Locale `json:"locale"`
+	Autostart        bool   `json:"autostart"`
+	MinimizeToTray   bool   `json:"minimizeToTray"`
+	PreventSleep     bool   `json:"preventSleep"`
+	Port             int    `json:"port,omitempty"`
+	WakeWord         string `json:"wakeWord"`
+	AssistantVisible bool   `json:"assistantVisible"`
 }
 
 func defaultSettings() Settings {
@@ -38,10 +39,10 @@ func defaultSettings() Settings {
 
 func octopHome() string {
 	if v := os.Getenv("XFRIEND_HOME"); v != "" {
-		return v
+		return absoluteDesktopHome(v)
 	}
 	if v := os.Getenv("OCTOP_HOME"); v != "" {
-		return v
+		return absoluteDesktopHome(v)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -50,7 +51,21 @@ func octopHome() string {
 	return filepath.Join(home, ".xfriend")
 }
 
+func absoluteDesktopHome(value string) string {
+	// Python starts with portable/ as its working directory. Normalize overrides
+	// here so the data lock and the child process refer to the same directory.
+	if absolute, err := filepath.Abs(value); err == nil {
+		return absolute
+	}
+	return value
+}
+
 func portableDir() string {
+	if exe, err := os.Executable(); err == nil {
+		if root, installed, err := installedRuntime(filepath.Dir(exe)); installed && err == nil {
+			return root
+		}
+	}
 	return filepath.Join(octopHome(), "portable")
 }
 
@@ -71,9 +86,15 @@ func loadSettings() Settings {
 	}
 	_ = json.Unmarshal(data, &s)
 	var legacy struct {
-		PreventSleepMac bool `json:"preventSleepMac"`
+		PreventSleepMac  bool  `json:"preventSleepMac"`
+		AssistantVisible *bool `json:"assistantVisible"`
 	}
 	_ = json.Unmarshal(data, &legacy)
+	if legacy.AssistantVisible == nil {
+		// Older clients always restored the assistant after service readiness.
+		// Keep that behavior for existing settings, while fresh installs stay lazy.
+		s.AssistantVisible = true
+	}
 	if !s.PreventSleep {
 		s.PreventSleep = legacy.PreventSleepMac
 	}

@@ -7,6 +7,8 @@ import { applyUserLocale } from "../utils/locale";
 import { isNetworkFetchError } from "../utils/networkError";
 import { CurrentUserProvider } from "../hooks/useCurrentUser";
 import BootOfflinePanel from "./BootOfflinePanel";
+import { usesCloudAccount } from "../api/modules/cloudAccount";
+import CloudAuthGuard from "./CloudAuthGuard";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -35,6 +37,14 @@ interface AuthGuardProps {
  * on every sidebar click and flash a full-page spinner.
  */
 export default function AuthGuard({ children }: AuthGuardProps) {
+  return usesCloudAccount() ? (
+    <CloudAuthGuard>{children}</CloudAuthGuard>
+  ) : (
+    <LocalAuthGuard>{children}</LocalAuthGuard>
+  );
+}
+
+function LocalAuthGuard({ children }: AuthGuardProps) {
   const navigate = useNavigate();
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;

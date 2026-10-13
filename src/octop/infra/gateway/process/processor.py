@@ -607,6 +607,9 @@ class GlobalProcessor:
     # -- IM channel entry (MessageEvent stream) --------------------------------
 
     async def __call__(self, msg: InboundMessage) -> AsyncIterator[MessageEvent]:
+        from octop.infra.licensing.service import require_product_license
+
+        await require_product_license(self._agent_manager.paths.root)
         from octop.infra.metrics import METRICS  # noqa: PLC0415
 
         METRICS.inc("messages_total")
@@ -627,6 +630,9 @@ class GlobalProcessor:
         im_meta = sanitize_im_metadata(msg)
 
         cmd = parse_slash(msg.text)
+        prepare_runtime = getattr(self._agent_manager, "ensure_agent_runtime", None)
+        if cmd is None and asyncio.iscoroutinefunction(prepare_runtime):
+            await prepare_runtime(agent_id)
         locale = resolve_user_locale(
             user_repo=self._user_repo,
             user_id=user_id,
@@ -904,6 +910,9 @@ class GlobalProcessor:
         IM channels use :meth:`__call__` → ``project_stream`` → ``MessageEvent``
         (e.g. DingTalk ``BaseChannel.handle_inbound``).
         """
+        from octop.infra.licensing.service import require_product_license
+
+        await require_product_license(self._agent_manager.paths.root)
         from octop.infra.metrics import METRICS  # noqa: PLC0415
 
         METRICS.inc("messages_total")
@@ -916,6 +925,10 @@ class GlobalProcessor:
 
         agent_row = self._agent_repo.get(agent_id)
         team_host = is_team_agent(agent_row)
+        cmd = parse_slash(msg.text)
+        prepare_runtime = getattr(self._agent_manager, "ensure_agent_runtime", None)
+        if cmd is None and asyncio.iscoroutinefunction(prepare_runtime):
+            await prepare_runtime(agent_id)
         traj_on = self._agent_trajectory_enabled(agent_id, agent_row)
         user_id = resolve_user_id_for_message(
             msg,
@@ -931,7 +944,6 @@ class GlobalProcessor:
             channel_type=channel_type,
             metadata=meta,
         )
-        cmd = parse_slash(msg.text)
         if cmd is not None and cmd.name in HITL_APPROVAL_COMMANDS:
             usage_tracker = UsageTracker()
             slash_outcome = HitlSlashOutcome()
@@ -1234,6 +1246,9 @@ class GlobalProcessor:
         decisions: list[dict[str, Any]],
     ) -> AsyncIterator[dict[str, Any]]:
         """Resume a dashboard HITL turn with the normal history bookkeeping."""
+        from octop.infra.licensing.service import require_product_license
+
+        await require_product_license(self._agent_manager.paths.root)
         usage_tracker = UsageTracker()
         history_tracker = await self._begin_history(agent_id, thread_id, {}, resume=True)
         completed = False

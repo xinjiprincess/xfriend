@@ -396,6 +396,17 @@ export const TeamCard = memo(function TeamCard({
                   label: t("experts.channelsBtn"),
                   onClick: () => setChannelCatalogOpen(true),
                 },
+                {
+                  key: "dual",
+                  icon: <Waypoints size={14} />,
+                  label: t("engineHub.dualTitle"),
+                  onClick: () =>
+                    navigate(
+                      `/engines/dual?${new URLSearchParams(
+                        members.map((member) => ["member", member.id]),
+                      ).toString()}`,
+                    ),
+                },
               ] satisfies MenuProps["items"],
             }}
             trigger={["click"]}

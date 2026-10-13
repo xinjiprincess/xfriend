@@ -28,6 +28,15 @@ class SettingsRepo:
         with self._db.transaction() as conn:
             conn.execute("DELETE FROM settings WHERE key = ?", (key,))
 
+    def list_prefix(self, prefix: str) -> list[tuple[str, str]]:
+        """Read a literal key prefix (without LIKE wildcard interpretation)."""
+        with self._db.connect() as conn:
+            rows = conn.execute(
+                "SELECT key, value FROM settings WHERE substr(key, 1, ?) = ? ORDER BY key",
+                (len(prefix), prefix),
+            ).fetchall()
+        return [(str(row["key"]), str(row["value"])) for row in rows]
+
     def get_active_model(self) -> tuple[str, str]:
         """Return (provider_name, model_id); empty strings if not set."""
         raw = self.get(self._KEY_ACTIVE_MODEL) or ""

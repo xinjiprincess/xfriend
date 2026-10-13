@@ -56,6 +56,41 @@ function mockRegistration(opts: {
   return registration;
 }
 
+describe("desktop service worker cleanup", () => {
+  afterEach(() => {
+    delete document.documentElement.dataset.xfriendDesktop;
+    vi.unstubAllGlobals();
+  });
+
+  it("removes only the application worker and precache, without registering a new worker", async () => {
+    document.documentElement.dataset.xfriendDesktop = "1";
+    mockRegistration({});
+    const appWorker = {
+      active: { scriptURL: `${location.origin}/sw.js` },
+      unregister: vi.fn(),
+    };
+    const otherWorker = {
+      active: { scriptURL: `${location.origin}/other.js` },
+      unregister: vi.fn(),
+    };
+    vi.mocked(navigator.serviceWorker.getRegistrations).mockResolvedValue([
+      appWorker,
+      otherWorker,
+    ] as unknown as ServiceWorkerRegistration[]);
+    const removeCache = vi.fn();
+    vi.stubGlobal("caches", {
+      keys: async () => ["workbox-precache-v2", "user-content"],
+      delete: removeCache,
+    });
+    const { registerSW } = await import("./sw-register");
+    await registerSW();
+    expect(appWorker.unregister).toHaveBeenCalledOnce();
+    expect(otherWorker.unregister).not.toHaveBeenCalled();
+    expect(removeCache).toHaveBeenCalledExactlyOnceWith("workbox-precache-v2");
+    expect(navigator.serviceWorker.register).not.toHaveBeenCalled();
+  });
+});
+
 describe("registerProductionSW", () => {
   beforeEach(() => {
     vi.resetModules();

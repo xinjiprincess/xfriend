@@ -1,6 +1,6 @@
 version: "3"
 
-# Shell UI is Go-embedded HTML (desktop/src/assets). No Vite/npm frontend.
+# Shell settings and the separately staged dashboard are Go-embedded assets.
 
 tasks:
   go:mod:tidy:
@@ -16,9 +16,12 @@ tasks:
       - go build -o .task/devserver.exe ./cmd/devserver
 
   build:frontend:
-    summary: No Vite build (assets embedded)
+    summary: Stages the matching dashboard for instant desktop startup
     cmds:
-      - echo "embedded assets; skip vite"
+      - go run ./cmd/stage-dashboard --portable="{{.PORTABLE_ZIP}}" --production={{.PRODUCTION}}
+    vars:
+      PORTABLE_ZIP: '{{.PORTABLE_ZIP | default ""}}'
+      PRODUCTION: '{{.PRODUCTION | default "false"}}'
 
   generate:bindings:
     summary: Bindings unused (Call.ByName)

@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Input, Spin, Tabs, Segmented, Tooltip } from "antd";
+import { Button, Input, Spin, Tabs, Segmented, Tooltip } from "antd";
 import { message } from "@/utils/antdMessage";
 
 import {
@@ -36,6 +36,7 @@ import {
 import PageShell from "../../layouts/PageShell";
 import TabLabel from "../../components/TabLabel";
 import StreamSetupGuide from "../../components/StreamSetupGuide/StreamSetupGuide";
+import EngineEntrypoints from "../../components/EngineEntrypoints";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { request } from "../../api/request";
 import {
@@ -849,6 +850,14 @@ export default function ExpertsPage() {
     <PageShell.FillTabs
       title={t("pageShell.experts.title")}
       subtitle={t("pageShell.experts.subtitle")}
+      actions={
+        <>
+          <Button href="/settings/transfer">
+            {t("portableTransfer.title")}
+          </Button>
+          <EngineEntrypoints compact />
+        </>
+      }
     >
       <Tabs
         activeKey={activeTab}

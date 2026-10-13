@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from octop_harness.security.models import DEFAULT_HITL_TOOLS, SecurityPolicy
 from pydantic import BaseModel, Field
 
 from octop.api.deps import get_server, require_permission
 from octop.i18n.domains.tools import hitl_tool_catalog
 from octop.infra.db.repos.audit import ACTOR_ADMIN
+
+if TYPE_CHECKING:
+    from octop_harness.security.models import SecurityPolicy
 
 router = APIRouter()
 
@@ -192,6 +194,8 @@ async def get_security_defaults(
     _: Any = Depends(require_permission("security")),
     server: Any = Depends(get_server),
 ) -> SecurityDefaultsResponse:
+    from octop_harness.security.models import DEFAULT_HITL_TOOLS
+
     store = _rules_store(server)
     raw = store.list_catalog()
     return SecurityDefaultsResponse(

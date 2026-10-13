@@ -24,3 +24,16 @@ def test_meta_yaml_has_id_and_display_name() -> None:
 def test_skills_json_is_a_list() -> None:
     meta = json.loads((_DIR / "manifest.json").read_text(encoding="utf-8"))
     assert isinstance(meta.get("prompt_files", []), list)
+
+
+def test_assistant_identity_and_help_are_current() -> None:
+    meta = json.loads((_DIR / "manifest.json").read_text(encoding="utf-8"))
+    assert meta["label"] == {"zh": "Xfriend 助手", "en": "Xfriend Assistant"}
+    skill = (_DIR / "skills/xfriend-assistant/SKILL.md").read_text(encoding="utf-8")
+    soul = (_DIR / "SOUL.md").read_text(encoding="utf-8")
+    assert "# Xfriend 助手" in skill
+    assert "Xfriend 助手" in soul
+    assert "xfriend --help" in skill
+    assert "DSH" in skill
+    for removed in ("octop.cloud", "TencentCloud/Octop", "Octop 助手", "user login"):
+        assert removed not in skill

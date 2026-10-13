@@ -503,7 +503,8 @@ async def test_dashboard_processor_writes_only_new_archive(archive):
     assert archive.store.turn("t")["status"] == "complete"
 
 
-def test_rebind_is_rejected_before_closing_old_database(archive, monkeypatch):
+@pytest.mark.parametrize("runtime_ready", [False, True], ids=["core", "runtime"])
+def test_rebind_is_rejected_before_closing_old_database(archive, monkeypatch, runtime_ready):
     from unittest.mock import MagicMock
 
     from octop.infra.db.rebind import rebind_control_plane
@@ -511,7 +512,8 @@ def test_rebind_is_rejected_before_closing_old_database(archive, monkeypatch):
 
     server = MagicMock()
     server.user_manager.count.return_value = 0
-    server.app_runtime.history_archive = archive
+    server.history_archive = archive
+    server.app_runtime = MagicMock(history_archive=archive) if runtime_ready else None
     open_database = MagicMock()
     monkeypatch.setattr("octop.infra.db.rebind.open_database", open_database)
     with pytest.raises(OctopError, match="Restart"):

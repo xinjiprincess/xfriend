@@ -68,6 +68,22 @@ var runSQLiteBackup = func(python, source, destination string) error {
 	return nil
 }
 
+// Installed code does not replace user workspaces. Back up the database before
+// schema migration without copying every attachment and workspace at launch.
+var runInstalledSQLiteBackup = func(python, source, destination string) error {
+	const script = `import contextlib, sqlite3, sys
+with contextlib.closing(sqlite3.connect(sys.argv[1])) as source, contextlib.closing(sqlite3.connect(sys.argv[2])) as target:
+    source.backup(target)
+    if target.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+        raise RuntimeError('SQLite backup integrity check failed')
+`
+	cmd := exec.Command(python, "-c", script, source, destination)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("SQLite backup failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 type desktopDatabaseConfig struct {
 	Database struct {
 		Driver     string `json:"driver"`
@@ -130,6 +146,10 @@ func safeVersion(value string) string {
 }
 
 func backupSQLiteBeforeUpgrade(root, currentVersion, nextVersion string) (string, error) {
+	return backupSQLiteBeforeUpgradeWith(root, currentVersion, nextVersion, runSQLiteBackup)
+}
+
+func backupSQLiteBeforeUpgradeWith(root, currentVersion, nextVersion string, backup func(string, string, string) error) (string, error) {
 	home := octopHome()
 	source, isSQLite, err := desktopSQLitePath(home)
 	if err != nil || !isSQLite {
@@ -152,7 +172,7 @@ func backupSQLiteBeforeUpgrade(root, currentVersion, nextVersion string) (string
 		time.Now().UTC().Format("20060102T150405.000000000Z"),
 	)
 	destination := filepath.Join(backupDir, name)
-	if err := runSQLiteBackup(pythonExe(root), source, destination); err != nil {
+	if err := backup(pythonExe(root), source, destination); err != nil {
 		_ = os.Remove(destination)
 		return "", err
 	}

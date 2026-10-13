@@ -24,7 +24,19 @@ if TYPE_CHECKING:
 class NativeEngine:
     id = "native"
     capabilities = frozenset(
-        {"sessions", "resume", "cancel", "permission", "question", "history", "artifacts"}
+        {
+            "sessions",
+            "resume",
+            "cancel",
+            "permission",
+            "question",
+            "history",
+            "artifacts",
+            "tools",
+            "skills",
+            "plugins",
+            "connectors",
+        }
     )
 
     def __init__(
@@ -136,7 +148,7 @@ class NativeEngine:
 class DSHEngine:
     id = "dsh"
     capabilities = frozenset(
-        {"sessions", "resume", "cancel", "permission", "tools", "versioned-runtime"}
+        {"sessions", "resume", "cancel", "permission", "tools", "mcp", "versioned-runtime"}
     )
 
     def __init__(self, service: DSHService) -> None:

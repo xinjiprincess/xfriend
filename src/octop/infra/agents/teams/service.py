@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from octop.infra.agents.settings.tool_catalog import BUILTIN_TOOL_CATALOG
+from octop.infra.agents.teams.configuration import (
+    configuration_revision,
+    member_models,
+    team_config,
+)
 from octop.infra.agents.teams.jobs import TeamJobTracker
 from octop.infra.db.repos.agents import AgentRow
 from octop.infra.db.services import RepoBundle
@@ -121,6 +127,57 @@ class TeamService:
         self._repos = repos
         self.jobs = jobs or TeamJobTracker()
         self._workspace_for = workspace_for
+        self._configuration_locks: dict[str, asyncio.Lock] = {}
+
+    def validate_models(self, models: dict[str, str], roster: list[str]) -> dict[str, str]:
+        invalid = set(models) - set(roster)
+        for agent_id, reference in models.items():
+            name, separator, model_id = reference.partition("/")
+            provider = self._repos.provider_repo.get_by_name(name) if separator else None
+            if (
+                provider is None
+                or not provider.enabled
+                or not any(
+                    model.get("id") == model_id and model.get("enabled", True)
+                    for model in provider.get_models()
+                )
+            ):
+                invalid.add(agent_id)
+        if invalid:
+            raise OctopError.localized(
+                ErrorCode.TEAM_MODEL_INVALID, details={"member_agent_ids": sorted(invalid)}
+            )
+        return dict(models)
+
+    async def update_configuration(
+        self, manager: Any, user: Any, team_id: str, changes: dict[str, Any], revision: str | None
+    ) -> AgentRow:
+        async with self._configuration_locks.setdefault(team_id, asyncio.Lock()):
+            row = manager.get_row(team_id)
+            if row is None or not is_team_agent(row):
+                raise OctopError.localized(ErrorCode.TEAM_NOT_FOUND)
+            previous = await asyncio.to_thread(self.member_ids, team_id)
+            if revision is not None and configuration_revision(row, previous) != revision:
+                raise OctopError.localized(ErrorCode.TEAM_CONFIG_CONFLICT)
+            roster = self.validate_member_ids(user, changes.pop("member_ids", previous))
+            self.assert_roster_writable(team_id, roster)
+            config = team_config(row)
+            if "member_models" in changes:
+                models = changes.pop("member_models")
+            else:
+                models = {key: value for key, value in member_models(row).items() if key in roster}
+            config["team_member_models"] = self.validate_models(models, roster)
+            if changes.get("default_model"):
+                self.validate_models({team_id: changes["default_model"]}, [team_id])
+            changes["config_json"] = json.dumps(config)
+            if roster != previous:
+                await asyncio.to_thread(self.replace_members, team_id, roster)
+            try:
+                return cast(AgentRow, await manager.update(team_id, **changes))
+            except BaseException:
+                if roster != previous:
+                    await asyncio.to_thread(self.replace_members, team_id, previous)
+                raise
 
     def _workspace(self, team_agent_id: str) -> Any | None:
         if self._workspace_for is None:
@@ -277,6 +334,9 @@ class TeamService:
             "name": row.name,
             "description": row.description,
             "default_model": row.default_model,
+            "system_prompt": row.system_prompt,
+            "member_models": member_models(row),
+            "revision": configuration_revision(row, self.member_ids(row.agent_id)),
             "color": row.color,
             "icon_name": row.icon_name,
             "icon_url": team_icon_url(row.icon_url),
@@ -294,6 +354,7 @@ class TeamService:
                     "state": member.last_state or "unknown",
                     "is_shared": bool(int(member.is_shared or 0)),
                     "user_id": member.user_id,
+                    "default_model": member.default_model,
                 }
                 for member in member_rows
                 if member is not None

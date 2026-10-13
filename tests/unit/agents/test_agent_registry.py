@@ -161,16 +161,29 @@ async def test_boot_start_timeout_marks_failed_and_continues(
     services.repos.agent_repo.create(agent_id="ok1", user_id=None, name="ok")
     registry = AgentManager(repos=services.repos, paths=services.paths)
     original = registry._start_agent
+    # Keep this deadline test focused on restore scheduling, not filesystem
+    # seeding competing with a short restore timeout on Windows.
+    monkeypatch.setattr(registry, "_post_start_agent", AsyncMock())
+    monkeypatch.setattr(
+        registry,
+        "_agent_runtime_bundle",
+        lambda row: (
+            SimpleNamespace(workspace_dir=None, backend=None, skills_dir=None),
+            {},
+            [],
+            "User",
+        ),
+    )
 
-    async def maybe_hang(row: Any) -> Any:
+    async def maybe_hang(row: Any, **kwargs: Any) -> Any:
         if row.agent_id == "slow1":
             await asyncio.Event().wait()
-        return await original(row)
+        return await original(row, init_workspace=False, **kwargs)
 
     monkeypatch.setattr(registry, "_start_agent", maybe_hang)
-    monkeypatch.setattr("octop.infra.agents.manager._AGENT_BOOT_START_TIMEOUT", 0.05)
+    monkeypatch.setattr("octop.infra.agents.manager._AGENT_BOOT_START_TIMEOUT", 0.5)
 
-    await asyncio.wait_for(registry.boot(), timeout=2)
+    await asyncio.wait_for(registry.boot(), timeout=5)
 
     slow = services.repos.agent_repo.get("slow1")
     ok = services.repos.agent_repo.get("ok1")
@@ -191,7 +204,7 @@ async def test_boot_start_timeout_keeps_registered_agent_running(
     services.repos.agent_repo.create(agent_id="late1", user_id=None, name="late")
     registry = AgentManager(repos=services.repos, paths=services.paths)
 
-    async def hang_after_register(row: Any) -> Any:
+    async def hang_after_register(row: Any, **kwargs: Any) -> Any:
         hm = registry._harness_manager
         assert hm is not None
         hm.create_agent(

@@ -9,6 +9,9 @@ tasks:
     deps:
       - task: common:go:mod:tidy
       - task: common:build:frontend
+        vars:
+          PRODUCTION: '{{.PRODUCTION | default "false"}}'
+          PORTABLE_ZIP: '{{.PORTABLE_ZIP | default ""}}'
       - task: common:generate:icons
     cmds:
       - go build {{.BUILD_FLAGS}} -o {{.BIN_DIR}}/{{.APP_NAME}}

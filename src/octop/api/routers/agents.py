@@ -89,6 +89,8 @@ def _attach_unread_counts(
 
 
 def _bootstrap_pending_for(server: Any, agent_id: str) -> bool:
+    if server.app_runtime is None:
+        return True
     return not server.app_runtime.agent_registry.is_bootstrapped(agent_id)
 
 
@@ -203,6 +205,16 @@ def _row_dict(
             payload["member_ids"] = []
     if bootstrap_pending is not None:
         payload["bootstrap_pending"] = bootstrap_pending
+    runtime = server.app_runtime if server is not None else None
+    pending = getattr(getattr(runtime, "agent_registry", None), "agent_startup_pending", None)
+    payload["startup_pending"] = bool(
+        server is not None
+        and row.enabled
+        and row.last_state not in {"stopped", "failed"}
+        and (runtime is None or (callable(pending) and pending(row.agent_id) is True))
+    )
+    if payload["startup_pending"]:
+        payload["state"] = "starting"
     return payload
 
 
@@ -228,10 +240,11 @@ async def list_agents(
             details={"permission": "users"},
         )
 
-    assert server.app_runtime is not None
-    registry = server.app_runtime.agent_registry
+    registry = server.app_runtime.agent_registry if server.app_runtime is not None else None
     if scope == "all":
-        rows = registry.list_rows()
+        rows = (
+            registry.list_rows() if registry is not None else server.services.agent_repo.list_all()
+        )
         user_ids = {r.user_id for r in rows if r.user_id is not None}
         username_by_id: dict[int, str] = {}
         for uid in user_ids:
@@ -250,7 +263,11 @@ async def list_agents(
         ]
         return _attach_unread_counts(server, user.id, payloads)
 
-    owned = registry.list_agents(user.id)
+    owned = (
+        registry.list_agents(user.id)
+        if registry is not None
+        else server.services.agent_repo.list_by_user(user.id)
+    )
     shared = server.services.agent_repo.list_shared(exclude_user_id=user.id)
     rows = list({row.agent_id: row for row in [*shared, *owned]}.values())
     shared_owner_username_by_id: dict[int, str] = {}
@@ -358,8 +375,11 @@ async def get_agent(
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Return full configuration and runtime state for one agent."""
-    assert server.app_runtime is not None
-    row = server.app_runtime.agent_registry.get_row(agent_id)
+    row = (
+        server.app_runtime.agent_registry.get_row(agent_id)
+        if server.app_runtime is not None
+        else server.services.agent_repo.get(agent_id)
+    )
     if row is None:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
     assert_agent_access_row(row, user)

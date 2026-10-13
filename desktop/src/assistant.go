@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -14,19 +15,47 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-func (a *App) createAssistantWindow() {
-	w := a.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "Singu Xfriend 小星助手", Width: 160, Height: 180,
-		URL: "/assistant.html", Hidden: true, Frameless: true,
-		AlwaysOnTop: true, DisableResize: true,
-		BackgroundColour: application.NewRGB(255, 255, 255),
-		Windows:          application.WindowsWindow{HiddenOnTaskbar: true},
+func (a *App) ensureAssistantWindow() *application.WebviewWindow {
+	if a.app == nil {
+		return nil
+	}
+	a.assistantOnce.Do(func() {
+		w := a.app.Window.NewWithOptions(application.WebviewWindowOptions{
+			Title: "Singu Xfriend 小星助手", Width: 160, Height: 180,
+			URL: "/assistant.html", Hidden: true, Frameless: true,
+			AlwaysOnTop: true, DisableResize: true,
+			BackgroundColour: application.NewRGB(255, 255, 255),
+			Windows:          application.WindowsWindow{HiddenOnTaskbar: true},
+		})
+		a.mu.Lock()
+		a.assistantWindow = w
+		a.mu.Unlock()
+		w.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+			e.Cancel()
+			a.HideAssistant()
+		})
+		flushSession := func(_ *application.WindowEvent) { a.flushAssistantSession(w) }
+		w.OnWindowEvent(events.Windows.WebViewNavigationCompleted, flushSession)
+		w.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, flushSession)
+		w.OnWindowEvent(events.Linux.WindowLoadFinished, flushSession)
 	})
-	a.assistantWindow = w
-	w.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		e.Cancel()
-		a.HideAssistant()
-	})
+	return a.assistantWindowRef()
+}
+
+func (a *App) assistantWindowRef() *application.WebviewWindow {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.assistantWindow
+}
+
+func (a *App) flushAssistantSession(window *application.WebviewWindow) {
+	if window == nil {
+		return
+	}
+	a.mu.Lock()
+	token := a.assistantSession
+	a.mu.Unlock()
+	window.ExecJS("window.dispatchEvent(new CustomEvent('assistant:session',{detail:" + jsonString(token) + "}));")
 }
 
 func (a *App) AssistantBase() string {
@@ -36,7 +65,7 @@ func (a *App) AssistantBase() string {
 }
 
 func (a *App) handleAssistantMessage(window application.Window, message string, origin *application.OriginInfo) {
-	if window != a.window || a.assistantWindow == nil || !assistantOriginAllowed(a.AssistantBase(), origin) {
+	if window != a.window || !assistantOriginAllowed(a.AssistantBase(), origin) {
 		return
 	}
 	var data struct {
@@ -53,8 +82,12 @@ func (a *App) handleAssistantMessage(window application.Window, message string, 
 	if data.Type != "xfriend:session" {
 		return
 	}
-	// Never persist or log credentials: transfer only to our assistant window.
-	a.assistantWindow.ExecJS("window.dispatchEvent(new CustomEvent('assistant:session',{detail:" + jsonString(data.Token) + "}));")
+	// Hold the most recent session only in memory until the lazy assistant loads.
+	// Never persist or log credentials, and never create a window for token sync.
+	a.mu.Lock()
+	a.assistantSession = data.Token
+	a.mu.Unlock()
+	a.flushAssistantSession(a.assistantWindowRef())
 }
 
 func assistantOriginAllowed(base string, origin *application.OriginInfo) bool {
@@ -70,15 +103,33 @@ func assistantOriginAllowed(base string, origin *application.OriginInfo) bool {
 }
 
 func (a *App) ShowAssistant() {
-	if a.assistantWindow != nil {
-		a.assistantWindow.Show()
-		a.assistantWindow.Focus()
+	if window := a.ensureAssistantWindow(); window != nil {
+		a.setAssistantVisible(true)
+		window.Show()
+		window.Focus()
+	}
+}
+
+func (a *App) setAssistantVisible(visible bool) {
+	if a.store == nil {
+		return
+	}
+	settings := a.store.get()
+	if settings.AssistantVisible == visible {
+		return
+	}
+	settings.AssistantVisible = visible
+	if err := a.store.save(settings); err != nil {
+		log.Printf("save assistant visibility: %v", err)
 	}
 }
 
 func (a *App) OpenAssistantSettings() {
 	if a.window != nil && a.AssistantBase() != "" {
-		a.window.SetURL(a.AssistantBase() + "/assistant-settings")
+		if target, err := url.Parse(a.AssistantBase()); err == nil {
+			target.Path, target.RawPath = "/assistant-settings", ""
+			a.window.SetURL(target.String())
+		}
 	}
 	a.showWindow()
 }
@@ -98,28 +149,31 @@ func (a *App) OpenAssistantConversation(agent, thread string) {
 
 func (a *App) HideAssistant() {
 	a.StopAssistantVoice()
-	if a.assistantWindow != nil {
-		a.assistantWindow.Hide()
+	a.setAssistantVisible(false)
+	if window := a.assistantWindowRef(); window != nil {
+		window.Hide()
 	}
 }
 
 func (a *App) ExpandAssistant(expanded bool) {
-	if a.assistantWindow == nil {
+	window := a.assistantWindowRef()
+	if window == nil {
 		return
 	}
 	if expanded {
-		a.assistantWindow.SetSize(420, 680)
+		window.SetSize(420, 680)
 	} else {
-		a.assistantWindow.SetSize(160, 180)
+		window.SetSize(160, 180)
 	}
 }
 
 func (a *App) assistantVoiceEvent(kind, text string) {
-	if a.assistantWindow == nil {
+	window := a.assistantWindowRef()
+	if window == nil {
 		return
 	}
 	data, _ := json.Marshal(map[string]string{"kind": kind, "text": text})
-	a.assistantWindow.ExecJS("window.dispatchEvent(new CustomEvent('assistant:voice',{detail:" + string(data) + "}));")
+	window.ExecJS("window.dispatchEvent(new CustomEvent('assistant:voice',{detail:" + string(data) + "}));")
 }
 
 func (a *App) SetAssistantWakeWord(wakeWord string) error {

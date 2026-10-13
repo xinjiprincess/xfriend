@@ -24,6 +24,16 @@ export default defineConfig({
     css: false,
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     pool: "threads",
+    // Use jsdom's per-window storage, not Node's process-level Web Storage.
+    poolOptions: {
+      threads: {
+        execArgv: process.allowedNodeEnvironmentFlags.has(
+          "--no-experimental-webstorage",
+        )
+          ? ["--no-experimental-webstorage"]
+          : [],
+      },
+    },
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

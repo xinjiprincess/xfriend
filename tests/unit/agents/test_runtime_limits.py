@@ -19,6 +19,17 @@ def test_agent_recursion_limit_reads_max_iters() -> None:
     assert agent_recursion_limit({}) is None
 
 
+def test_runtime_wire_keys_match_execution_sdk() -> None:
+    from octop_harness.context_usage import SEGMENT_KEYS as harness_keys
+    from octop_harness.middleware import model_settings
+
+    from octop.infra.agents.threads.context_breakdown import SEGMENT_KEYS
+
+    assert CONFIGURABLE_MODEL_SETTINGS == model_settings.CONFIGURABLE_MODEL_SETTINGS
+    assert CONFIGURABLE_MAX_INPUT_TOKENS == model_settings.CONFIGURABLE_MAX_INPUT_TOKENS
+    assert tuple(harness_keys) == SEGMENT_KEYS
+
+
 def test_agent_max_input_tokens_reads_max_input_length() -> None:
     assert agent_max_input_tokens({"max_input_length": 200_000}) == 200_000
     assert agent_max_input_tokens({"max_input_length": 0}) is None

@@ -15,6 +15,14 @@ export interface TaskStep {
   session_id: string;
   engine_session_id?: string;
   engine_version?: string;
+  phase?: "work" | "summary";
+}
+export interface DualEnginePlan {
+  native_experts: string[];
+  dsh_experts: string[];
+  workspace: string;
+  summary_expert: string;
+  summary_engine: "native" | "dsh";
 }
 export interface ExecutionTask {
   id: string;
@@ -24,11 +32,13 @@ export interface ExecutionTask {
   steps: TaskStep[];
   step: number;
   error?: string;
+  mode?: "sequential" | "dual";
   messages: {
     role: string;
     content: string;
     engine?: string;
     expert_id?: string;
+    phase?: "work" | "summary";
   }[];
   events: {
     id: string;
@@ -63,6 +73,11 @@ export const executionApi = {
     request<ExecutionTask>("/execution/tasks", {
       method: "POST",
       body: JSON.stringify({ expert_ids, text }),
+    }),
+  createDual: (plan: DualEnginePlan, text: string) =>
+    request<ExecutionTask>("/execution/dual-tasks", {
+      method: "POST",
+      body: JSON.stringify({ ...plan, text }),
     }),
   input: (id: string, text: string) =>
     request<ExecutionTask>(`/execution/tasks/${id}/input`, {

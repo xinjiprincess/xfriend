@@ -4,35 +4,27 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import importlib
 import logging
 import os
 import shutil
+import sys
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from octop.config import OctopConfig, load_config
 from octop.infra.agents.experts.catalog import ExpertCatalog, default_library_root
-from octop.infra.agents.manager import AgentManager
-from octop.infra.agents.plugins.manager import PluginManager
 from octop.infra.agents.subagents.catalog import SubagentCatalog, default_package_root
-from octop.infra.connectors.platform_collaboration import PlatformCollaboration
-from octop.infra.cron.manager import CronManager
 from octop.infra.db.factory import open_database, should_defer_control_plane_db
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.services import SharedServices, build_shared_services
-from octop.infra.engines.adapters import DSHEngine, NativeEngine
-from octop.infra.engines.dsh import DSHService
-from octop.infra.engines.execution import ExecutionService
-from octop.infra.engines.packages import EnginePackages
 from octop.infra.errors import ErrorCode, OctopError
-from octop.infra.gateway.gateway import Gateway
 from octop.infra.mobile.config_probe import ensure_mobile_capabilities_probed
-from octop.infra.proactive.scheduler import ProactiveCareScheduler
-from octop.infra.proactive.service import ProactiveCareService
 from octop.infra.setup import password_file as _wizard_pw
 from octop.infra.setup.brand_migration import migrate_agent_paths, migrate_local_files
 from octop.infra.setup.password_file import WIZARD_FILE_NAME
@@ -42,13 +34,43 @@ from octop.infra.users.manager import UserManager
 from octop.infra.utils.paths import PathLayout
 
 if TYPE_CHECKING:
+    from octop.infra.agents.manager import AgentManager
+    from octop.infra.agents.plugins.manager import PluginManager
     from octop.infra.auth.ldap.service import LdapAuthService
     from octop.infra.auth.ldap.throttle import LdapBindThrottle
     from octop.infra.auth.sso.service import SsoService
+    from octop.infra.connectors.platform_collaboration import PlatformCollaboration
+    from octop.infra.cron.manager import CronManager
     from octop.infra.db.services import SharedServices
+    from octop.infra.engines.dsh import DSHService
+    from octop.infra.engines.execution import ExecutionService
+    from octop.infra.engines.packages import EnginePackages
+    from octop.infra.gateway.gateway import Gateway
+    from octop.infra.gateway.threads import ThreadRegistry
     from octop.infra.history.trajectory.service import TrajectoryService
+    from octop.infra.proactive.scheduler import ProactiveCareScheduler
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
+
+
+def _preload_runtime_modules() -> None:
+    """Import SDK graphs off the HTTP loop; construct no service objects here."""
+    for module in (
+        "octop.infra.agents.manager",
+        "octop.infra.cron.manager",
+        "octop.infra.gateway.gateway",
+        "octop.infra.proactive.scheduler",
+        "octop.infra.proactive.service",
+        "octop.infra.utils.browser_media",
+        "octop.infra.cron.delivery",
+        "octop.infra.setup.tls.renewal",
+        "octop.infra.backup.auto",
+        "octop.infra.bridge.manager",
+        "octop.infra.knowledge.jobs",
+    ):
+        importlib.import_module(module)
+
 
 # Default 100 MiB per active log file before size-triggered rollover (in addition to daily).
 DEFAULT_LOG_MAX_BYTES = 100 * 1024 * 1024
@@ -256,6 +278,15 @@ class AppRuntime:
 
 class OctopServer:
     def _assert_plugins_idle(self) -> None:
+        if self._defer_agents and not self.runtime_ready:
+            raise OctopError.localized(ErrorCode.SERVICE_STARTING, status=503)
+        if self.app_runtime is not None and (
+            self.app_runtime.agent_registry.agents_pending
+            or (self._defer_agents and not self.startup_progress.agents_ready)
+        ):
+            raise OctopError(
+                ErrorCode.AGENT_BUSY, "Wait for expert startup before changing plugins"
+            )
         if self._execution_service is not None and self._execution_service.has_active_tasks:
             raise OctopError(
                 ErrorCode.AGENT_BUSY, "Wait for execution tasks before changing plugins"
@@ -279,10 +310,23 @@ class OctopServer:
         self.config: OctopConfig | None = None
         self.services: SharedServices | None = None
         self._dsh_service: DSHService | None = None
+        self._dsh_web: Any | None = None
         self._engine_packages: EnginePackages | None = None
         self._execution_service: ExecutionService | None = None
+        self._license_sync_task: asyncio.Task[None] | None = None
+        self._background_startup_task: asyncio.Task[None] | None = None
+        self._bridge_resume_task: asyncio.Task[None] | None = None
+        self._runtime_ready_event = asyncio.Event()
+        self._runtime_cleanup: list[Callable[[], Awaitable[None]]] = []
+        self._runtime_ready_callbacks: list[Callable[[AppRuntime], None]] = []
+        self._stopping = False
+        self._defer_agents = False
         self._platform_collaboration: PlatformCollaboration | None = None
         self.app_runtime: AppRuntime | None = None
+        self._user_manager: UserManager | None = None
+        self.history_archive: Any | None = None
+        self.trajectory_service: TrajectoryService | None = None
+        self.thread_registry: ThreadRegistry | None = None
         self.expert_catalog: ExpertCatalog | None = None
         self.subagent_catalog: SubagentCatalog | None = None
         self.plugin_manager: PluginManager | None = None
@@ -297,6 +341,8 @@ class OctopServer:
     # Backward compat: expose user_manager directly
     @property
     def engine_packages(self) -> EnginePackages:
+        from octop.infra.engines.packages import EnginePackages
+
         if self._engine_packages is None:
             self._engine_packages = EnginePackages(
                 self._home, self.dsh_service, self._assert_plugins_idle
@@ -305,6 +351,8 @@ class OctopServer:
 
     @property
     def platform_collaboration(self) -> PlatformCollaboration:
+        from octop.infra.connectors.platform_collaboration import PlatformCollaboration
+
         if self.services is None:
             raise RuntimeError("Platform collaboration requires a started server")
         if self._platform_collaboration is None:
@@ -313,6 +361,9 @@ class OctopServer:
 
     @property
     def execution_service(self) -> ExecutionService:
+        from octop.infra.engines.adapters import DSHEngine, NativeEngine
+        from octop.infra.engines.execution import ExecutionService
+
         if self.services is None or self.app_runtime is None:
             raise RuntimeError("Execution service requires a started server")
         if self._execution_service is None:
@@ -332,6 +383,7 @@ class OctopServer:
     @property
     def dsh_service(self) -> DSHService:
         from octop.infra.agents.settings.acp import ACPSettingsStore
+        from octop.infra.engines.dsh import DSHService
 
         if self.services is None:
             raise RuntimeError("DSH requires a started server")
@@ -347,8 +399,57 @@ class OctopServer:
         return self._dsh_service
 
     @property
+    def dsh_web(self) -> Any:
+        from octop.infra.engines.dsh_web import DSHWebWorkspace
+
+        if self._dsh_web is None:
+            self._dsh_web = DSHWebWorkspace(self._home, self.dsh_service.settings)
+        return self._dsh_web
+
+    @property
     def user_manager(self) -> UserManager | None:
-        return self.app_runtime.user_manager if self.app_runtime else None
+        return self._user_manager
+
+    @property
+    def runtime_ready(self) -> bool:
+        return self.app_runtime is not None and self.startup_progress.runtime_ready
+
+    def require_runtime(self) -> AppRuntime:
+        if not self.runtime_ready or self.app_runtime is None:
+            raise OctopError.localized(ErrorCode.SERVICE_STARTING, status=503)
+        return self.app_runtime
+
+    def register_runtime_ready_callback(self, callback: Callable[[AppRuntime], None]) -> None:
+        """Let the transport wire its adapters without an infra-to-API import."""
+        self._runtime_ready_callbacks.append(callback)
+        if self.runtime_ready:
+            callback(self.require_runtime())
+
+    async def ensure_runtime_ready(self) -> AppRuntime:
+        """Wait for shared engine assembly without cancelling other callers."""
+        if not self.runtime_ready:
+            self.start_background_services()
+            if self._background_startup_task is None or self._stopping:
+                raise OctopError.localized(ErrorCode.SERVICE_STARTING, status=503)
+            await self._runtime_ready_event.wait()
+        return self.require_runtime()
+
+    async def _run_startup_io(self, call: Callable[[], _T]) -> _T:
+        """Drain workers on cancellation before shutting down shared registries."""
+        task = asyncio.create_task(asyncio.to_thread(call))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if not task.cancelled():
+                task.exception()
+            raise
 
     @property
     def sso_service(self) -> SsoService:
@@ -404,22 +505,102 @@ class OctopServer:
 
     @property
     def database_bound(self) -> bool:
-        return self.services is not None and self.app_runtime is not None
+        return self.services is not None and self.user_manager is not None
 
-    async def start(self) -> None:
+    async def start(self, *, defer_agents: bool = False) -> None:
         if self._started:
             return
         self.startup_progress = StartupProgress()
+        self._runtime_ready_event.clear()
+        self._stopping = False
+        self._defer_agents = defer_agents
         self.startup_progress.mark("starting")
         try:
             await self._start()
         except BaseException as exc:
+            await self.stop()
             self.startup_progress.failure = type(exc).__name__
             self.startup_progress.mark("failed")
             self._close_logging()
             raise
-        self.startup_progress.ready = True
-        self.startup_progress.mark("ready")
+        self.startup_progress.core_ready = True
+        if not defer_agents or not self.database_bound:
+            self.startup_progress.agents_ready = True
+            self.startup_progress.ready = True
+            self.startup_progress.mark("ready")
+        else:
+            self.startup_progress.mark("core_ready")
+        from octop.infra.licensing.service import load_profile
+
+        if load_profile()[1]:
+            self._license_sync_task = asyncio.create_task(self._sync_product_license())
+
+    def start_background_services(self) -> None:
+        """Begin desktop warmup after HTTP is listening; safe to call repeatedly."""
+        if (
+            not self._defer_agents
+            or not self.database_bound
+            or self._background_startup_task is not None
+            or self._stopping
+        ):
+            return
+        self._background_startup_task = asyncio.create_task(
+            self._finish_background_startup(), name="xfriend-runtime-warmup"
+        )
+
+    async def _finish_background_startup(self) -> None:
+        try:
+            assert self.config is not None
+            await self._prepare_runtime(self.config)
+            rt = self.require_runtime()
+            self.startup_progress.mark("restoring_agents")
+            rt.agent_registry.begin_agent_restore()
+            await rt.agent_registry.wait_for_agent_restore()
+            self.startup_progress.agents_ready = True
+            self.startup_progress.mark("agents_restored")
+            await rt.gateway.refresh_media_backends()
+            await rt.gateway.start_external_channels()
+            rt.cron_manager.resume()
+            await rt.proactive_scheduler.start_all()
+            self.startup_progress.ready = True
+            self.startup_progress.mark("ready")
+        except Exception as exc:
+            self.startup_progress.runtime_failed = True
+            self.startup_progress.failure = type(exc).__name__
+            self.startup_progress.mark("runtime_failed")
+            logger.exception("Background runtime startup failed")
+        finally:
+            self._runtime_ready_event.set()
+
+    async def _prepare_runtime(self, config: OctopConfig) -> None:
+        self.startup_progress.mark("loading_engine_modules")
+        await self._run_startup_io(_preload_runtime_modules)
+        self.startup_progress.mark("engine_modules_loaded")
+        assert self.plugin_manager is not None
+        plugins = self.plugin_manager
+        await self._run_startup_io(lambda: plugins.load_installed(install_deps=True))
+        self.startup_progress.mark("plugins_loaded")
+        try:
+            await self._boot_runtime(config)
+            assert self.app_runtime is not None
+            for callback in self._runtime_ready_callbacks:
+                callback(self.app_runtime)
+        except BaseException:
+            await self._shutdown_runtime()
+            raise
+        self.startup_progress.runtime_ready = True
+        self.startup_progress.mark("runtime_ready")
+        self._runtime_ready_event.set()
+
+    async def _sync_product_license(self) -> None:
+        from octop.infra.licensing.service import product_license
+
+        while True:
+            try:
+                await product_license(self.paths.root).synchronize()
+            except Exception as exc:
+                logger.warning("Product license synchronization failed: %s", type(exc).__name__)
+            await asyncio.sleep(60)
 
     async def _start(self) -> None:
         await asyncio.get_running_loop().run_in_executor(None, migrate_local_files, self.paths)
@@ -445,14 +626,15 @@ class OctopServer:
         self.subagent_catalog = SubagentCatalog(default_package_root())
         self.subagent_catalog.refresh()
 
+        from octop.infra.agents.plugins.manager import PluginManager
+
         self.plugin_manager = PluginManager(
             plugins_dir=self.paths.plugins_dir,
             config_path=self.paths.config,
             assert_idle=self._assert_plugins_idle,
         )
         self.plugin_manager.seed_bundled()
-        self.plugin_manager.load_installed(install_deps=True)
-        self.startup_progress.mark("catalogs_plugins")
+        self.startup_progress.mark("catalogs_metadata")
 
         import time  # noqa: PLC0415
 
@@ -475,7 +657,9 @@ class OctopServer:
         )
         boot_from_services(self.services.settings_repo, self.services.secret_repo)
         self._ensure_jwt_secret()
-        await self._boot_runtime(config)
+        await self._boot_control_plane(config)
+        if not self._defer_agents:
+            await self._prepare_runtime(config)
         self._started = True
         assert self.user_manager is not None
         self._emit_wizard_password(user_count=self.user_manager.count())
@@ -505,36 +689,34 @@ class OctopServer:
         )
         boot_from_services(self.services.settings_repo, self.services.secret_repo)
         self._ensure_jwt_secret()
-        await self._boot_runtime(config)
+        await self._boot_control_plane(config)
+        if not self._defer_agents:
+            await self._prepare_runtime(config)
+        if self._defer_agents:
+            self.startup_progress.ready = False
+            self.startup_progress.agents_ready = False
+            self.startup_progress.mark("core_ready")
+            self.start_background_services()
         logger.info(
             "control-plane database bound driver=%s",
             config.database.driver,
         )
 
-    async def _boot_runtime(self, config: OctopConfig) -> None:
+    async def _boot_control_plane(self, config: OctopConfig) -> None:
+        """Bind account and archived-history state before importing engine SDKs."""
+        from octop.infra.gateway.threads import ThreadRegistry
+
         assert self.services is not None
-        assert self.expert_catalog is not None
-        assert self.plugin_manager is not None
-
-        from octop.infra.utils.browser_media import (  # noqa: PLC0415
-            configure_browser_idle_timeout,
+        self._user_manager = UserManager(self.services)
+        await self._user_manager.boot()
+        self.thread_registry = ThreadRegistry(
+            session_repo=self.services.session_repo, thread_repo=self.services.thread_repo
         )
-
-        configure_browser_idle_timeout(config.browser_idle_timeout_minutes)
-
-        registry = AgentManager(
-            repos=self.services.repos,
-            paths=self.paths,
-            config=config,
-            expert_catalog=self.expert_catalog,
-            plugin_manager=self.plugin_manager,
-        )
-
         from octop.infra.history.trajectory.live import TrajectoryLiveBus  # noqa: PLC0415
         from octop.infra.history.trajectory.service import TrajectoryService  # noqa: PLC0415
         from octop.infra.history.trajectory.store import TrajectoryStore  # noqa: PLC0415
 
-        history_archive = None
+        self.history_archive = None
         trajectory_store = TrajectoryStore(self.services.trajectory_event_repo)
         archive_path = self.paths.root / "history_v2.sqlite"
         if (
@@ -551,25 +733,56 @@ class OctopServer:
             identity = str(config.database.resolve_sqlite_path(self.paths.root).resolve())
             if not config.database.is_sqlite:
                 raise ValueError("Versioned history currently requires the SQLite control plane")
-            history_archive = HistoryArchive(
+            self.history_archive = HistoryArchive(
                 HistoryStore(archive_path, identity=identity),
                 self.services.thread_message_repo,
                 self.services.trajectory_event_repo,
                 enabled=config.history_v2_enabled,
             )
-            trajectory_store = ArchiveTrajectoryStore(history_archive)
-        trajectory_service = TrajectoryService(
+            trajectory_store = ArchiveTrajectoryStore(self.history_archive)
+        self.trajectory_service = TrajectoryService(
             trajectory_store,
             TrajectoryLiveBus(),
         )
 
+        self.startup_progress.mark("users_history_loaded")
+
+    async def _boot_runtime(self, config: OctopConfig) -> None:
+        from octop.infra.agents.manager import AgentManager
+        from octop.infra.cron.manager import CronManager
+        from octop.infra.gateway.gateway import Gateway
+        from octop.infra.proactive.scheduler import ProactiveCareScheduler
+        from octop.infra.proactive.service import ProactiveCareService
+
+        assert self.services is not None
+        assert self.expert_catalog is not None
+        assert self.plugin_manager is not None
+        assert self._user_manager is not None
+
+        from octop.infra.utils.browser_media import (  # noqa: PLC0415
+            configure_browser_idle_timeout,
+        )
+
+        configure_browser_idle_timeout(config.browser_idle_timeout_minutes)
+
+        registry = AgentManager(
+            repos=self.services.repos,
+            paths=self.paths,
+            config=config,
+            expert_catalog=self.expert_catalog,
+            plugin_manager=self.plugin_manager,
+        )
+        self._runtime_cleanup.append(registry.shutdown)
+
         gateway = Gateway(
             agent_manager=registry,
             repos=self.services.repos,
-            trajectory_service=trajectory_service,
-            history_archive=history_archive,
+            trajectory_service=self.trajectory_service,
+            history_archive=self.history_archive,
+            thread_registry=self.thread_registry,
         )
-        await gateway.boot()
+        self._runtime_cleanup.append(gateway.shutdown)
+        await gateway.boot(start_external_channels=False)
 
         from octop import __version__  # noqa: PLC0415
 
@@ -594,7 +807,8 @@ class OctopServer:
             repos=self.services.repos,
             timezone=config.default_timezone,
         )
-        await cron_mgr.boot()
+        self._runtime_cleanup.append(cron_mgr.shutdown)
+        await cron_mgr.boot(paused=True)
 
         from octop.infra.setup.tls.renewal import install_auto_renewal_job
 
@@ -624,17 +838,14 @@ class OctopServer:
             user_repo=self.services.repos.user_repo,
             default_timezone=config.default_timezone,
         )
+        self._runtime_cleanup.append(proactive_scheduler.shutdown)
         registry.set_proactive_scheduler(proactive_scheduler)
 
         self.startup_progress.mark("runtime_assembled")
-        await registry.boot()
-        self.startup_progress.mark("agents_restored")
-        await gateway.refresh_media_backends()
-
-        user_mgr = UserManager(self.services)
-        await user_mgr.boot()
-        self.startup_progress.mark("users_loaded")
-        await proactive_scheduler.start_all()
+        await registry.boot(restore_agents=not self._defer_agents)
+        if not self._defer_agents:
+            self.startup_progress.mark("agents_restored")
+            await gateway.refresh_media_backends()
 
         from octop.infra.auth.tokens import sign_token
         from octop.infra.bridge.manager import BridgeManager, public_base_url_from_config
@@ -669,12 +880,16 @@ class OctopServer:
             agent_registry=registry,
             gateway=gateway,
             cron_manager=cron_mgr,
-            user_manager=user_mgr,
+            user_manager=self._user_manager,
             proactive_scheduler=proactive_scheduler,
-            trajectory_service=trajectory_service,
-            history_archive=history_archive,
+            trajectory_service=self.trajectory_service,
+            history_archive=self.history_archive,
             bridge_manager=bridge_mgr,
         )
+        if not self._defer_agents:
+            await gateway.start_external_channels()
+            cron_mgr.resume()
+            await proactive_scheduler.start_all()
         from octop.infra.knowledge.jobs import resume_pending_index_jobs  # noqa: PLC0415
 
         resume_pending_index_jobs(self.services)
@@ -684,7 +899,7 @@ class OctopServer:
             with suppress(Exception):
                 await bridge_mgr.resume_auto_connections()
 
-        asyncio.create_task(_resume_bridges(), name="bridge-auto-resume")
+        self._bridge_resume_task = asyncio.create_task(_resume_bridges(), name="bridge-auto-resume")
 
     def _emit_wizard_password(self, *, user_count: int) -> None:
         config = self.config
@@ -716,34 +931,58 @@ class OctopServer:
                 wizard_home / WIZARD_FILE_NAME,
             )
 
+    async def _shutdown_runtime(self) -> None:
+        if self._bridge_resume_task is not None:
+            self._bridge_resume_task.cancel()
+            await asyncio.gather(self._bridge_resume_task, return_exceptions=True)
+            self._bridge_resume_task = None
+        cleanup, self._runtime_cleanup = self._runtime_cleanup, []
+        for close in reversed(cleanup):
+            try:
+                await close()
+            except Exception:
+                logger.exception("Failed closing runtime component")
+        self.app_runtime = None
+        self.startup_progress.runtime_ready = False
+
     async def stop(self) -> None:
-        if not self._started:
-            self._close_logging()
-            return
+        self._stopping = True
+        self._runtime_ready_event.set()
+        if self._background_startup_task is not None:
+            self._background_startup_task.cancel()
+            await asyncio.gather(self._background_startup_task, return_exceptions=True)
+            self._background_startup_task = None
+        if self.app_runtime is not None:
+            await self.app_runtime.agent_registry.cancel_agent_restore()
+        if self._license_sync_task is not None:
+            self._license_sync_task.cancel()
+            await asyncio.gather(self._license_sync_task, return_exceptions=True)
+            self._license_sync_task = None
         self.startup_progress.ready = False
+        self.startup_progress.core_ready = False
+        self.startup_progress.agents_ready = False
         self.startup_progress.mark("stopping")
         try:
             if self._execution_service is not None:
                 await self._execution_service.shutdown()
             if self._dsh_service is not None:
                 await self._dsh_service.shutdown()
+            if self._dsh_web is not None:
+                await self._dsh_web.shutdown()
+                self._dsh_web = None
             if self._platform_collaboration is not None:
                 await self._platform_collaboration.shutdown()
-            from octop.infra.connectors.gateway import agently_auth
-
-            await agently_auth.close()
-            if self.app_runtime is not None:
-                rt = self.app_runtime
-                await rt.proactive_scheduler.shutdown()
-                await rt.cron_manager.shutdown()
-                await rt.gateway.shutdown()
-                await rt.agent_registry.shutdown()
-                await rt.user_manager.shutdown_all()
-                if rt.history_archive is not None:
-                    rt.history_archive.store.close()
-            from octop.infra.backend.browse import dispose_all_browse_sessions
-
-            dispose_all_browse_sessions()
+            agently_auth = sys.modules.get("octop.infra.connectors.gateway.agently_auth")
+            if agently_auth is not None:
+                await agently_auth.close()
+            await self._shutdown_runtime()
+            if self._user_manager is not None:
+                await self._user_manager.shutdown_all()
+            if self.history_archive is not None:
+                self.history_archive.store.close()
+            browse = sys.modules.get("octop.infra.backend.browse")
+            if browse is not None:
+                browse.dispose_all_browse_sessions()
         finally:
             if self.services is not None:
                 self.services.db.close()
@@ -752,6 +991,10 @@ class OctopServer:
             self._execution_service = None
             self._platform_collaboration = None
             self.app_runtime = None
+            self._user_manager = None
+            self.history_archive = None
+            self.trajectory_service = None
+            self.thread_registry = None
             self._started = False
             logger.info("octop server stopped")
             self._close_logging()

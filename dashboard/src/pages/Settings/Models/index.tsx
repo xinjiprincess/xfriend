@@ -243,6 +243,9 @@ export default function ModelsPage() {
       actions={
         modelCategory === "chat" ? (
           <Space>
+            <Button href="/settings/transfer">
+              {t("portableTransfer.title")}
+            </Button>
             <Button
               icon={<RefreshCw size={14} />}
               onClick={() => void fetchAll()}

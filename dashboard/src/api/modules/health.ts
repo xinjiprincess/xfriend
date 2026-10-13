@@ -9,6 +9,16 @@ export interface StartupDiagnostics {
   failure: string | null;
 }
 
+export interface RuntimeReadiness {
+  ready: boolean;
+  core_ready: boolean;
+  runtime_ready: boolean;
+  runtime_failed: boolean;
+  agents_ready: boolean;
+}
+
 export const healthApi = {
+  readiness: (signal?: AbortSignal) =>
+    request<RuntimeReadiness>("/health", { signal }),
   startup: () => request<StartupDiagnostics>("/health/startup"),
 };

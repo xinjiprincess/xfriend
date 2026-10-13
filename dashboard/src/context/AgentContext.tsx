@@ -44,6 +44,8 @@ export interface OctopAgent {
   system_prompt: string | null;
   template_name: string | null;
   state: "running" | "stopped" | "failed" | "starting" | "stopping" | string;
+  /** Existing enabled expert restoring after a service restart. */
+  startup_pending?: boolean;
   last_error: string | null;
   icon: string | null;
   icon_name: string | null;
@@ -99,6 +101,8 @@ interface AgentContextValue {
 }
 
 export interface EnabledExpertsOptions {
+  /** Include restoring experts only for browsing their existing conversations. */
+  includeStarting?: boolean;
   /**
    * When ``true`` (opt-in; the default is ``false``), keep the
    * ``resolvedAgentId`` expert in the returned list even if it does not
@@ -131,7 +135,10 @@ export function selectEnabledExperts(
 ): OctopAgent[] {
   const { pinActive = false } = options;
   const enabled = agents.filter(
-    (a) => a.state === "running" || Boolean(a.bridge_disconnected),
+    (a) =>
+      a.state === "running" ||
+      Boolean(a.bridge_disconnected) ||
+      Boolean(options.includeStarting && a.startup_pending),
   );
   if (!pinActive || !resolvedAgentId) return enabled;
   if (enabled.some((a) => a.agent_id === resolvedAgentId)) return enabled;
@@ -380,6 +387,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
               return (
                 a.agent_id === b.agent_id &&
                 a.state === b.state &&
+                a.startup_pending === b.startup_pending &&
                 a.unread_count === b.unread_count &&
                 a.bootstrap_pending === b.bootstrap_pending &&
                 a.name === b.name &&

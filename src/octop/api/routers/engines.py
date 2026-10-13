@@ -11,12 +11,32 @@ from pydantic import BaseModel, Field
 from octop.api.common.documents import DocumentPreview, DocumentSelection
 from octop.api.deps import get_server, require_admin
 from octop.infra.engines.dsh import DSHService, Session
+from octop.infra.engines.mcp import MCPExtensions
+from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.history.documents import history_digest, render_document, select_messages
 from octop.infra.server import OctopServer
 from octop.infra.users.identity import User
 from octop.infra.utils.locale import resolve_request_locale
 
 router = APIRouter(prefix="/engines/dsh")
+
+
+class DSHWebView(BaseModel):
+    url: str = Field(description="Authenticated loopback URL for the original DSH workspace")
+
+
+@router.get(
+    "/web",
+    response_model=DSHWebView,
+    summary="Open the original DSH workspace on demand (admin)",
+)
+async def web_workspace(
+    server: OctopServer = Depends(get_server), _user: User = Depends(require_admin())
+) -> DSHWebView:
+    try:
+        return DSHWebView(url=await server.dsh_web.open(_user.id))
+    except (FileNotFoundError, RuntimeError, TimeoutError, ValueError) as exc:
+        raise OctopError(ErrorCode.ENGINE_UI_UNAVAILABLE, "DSH workspace could not start") from exc
 
 
 class EnginePackage(BaseModel):
@@ -106,10 +126,34 @@ class SessionView(SessionSummary):
     error: str | None = None
     permission: dict[str, Any] | None = None
     messages: list[dict[str, Any]]
+    extensions: list[str] = Field(default_factory=list)
 
 
 def service(server: OctopServer = Depends(get_server)) -> DSHService:
     return server.dsh_service
+
+
+@router.get(
+    "/extensions", response_model=MCPExtensions, summary="Read your DSH MCP extensions (admin)"
+)
+async def extensions(
+    user: User = Depends(require_admin()), engine: DSHService = Depends(service)
+) -> MCPExtensions:
+    return await engine.extensions(user.id)
+
+
+@router.put(
+    "/extensions",
+    response_model=MCPExtensions,
+    summary="Configure MCP extensions for new DSH sessions (admin)",
+    description="Supports stdio processes and HTTP MCP endpoints. Existing sessions retain their original declarations. Settings are user-scoped and available only to the administrator who owns them.",
+)
+async def update_extensions(
+    body: MCPExtensions,
+    user: User = Depends(require_admin()),
+    engine: DSHService = Depends(service),
+) -> MCPExtensions:
+    return await engine.extensions(user.id, body)
 
 
 async def owned_session(

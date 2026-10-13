@@ -44,8 +44,12 @@ def require_agent_row(
     server: Any,
 ) -> Any:
     """Load an agent row after owner / shared-agent / admin ``as_user`` checks."""
-    assert server.app_runtime is not None
-    row = server.app_runtime.agent_registry.get_row(agent_id)
+    runtime = server.app_runtime
+    row = (
+        runtime.agent_registry.get_row(agent_id)
+        if runtime is not None
+        else server.services.agent_repo.get(agent_id)
+    )
     if row is None:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
     if as_user is not None and as_user != user.id:

@@ -216,3 +216,38 @@ def test_bundled_library_zh_path_exists() -> None:
             continue
         md_files = list(div_dir.glob("*.md"))
         assert md_files, f"zh/{div_dir.name}/ has no markdown files"
+
+
+def test_release_index_preserves_bilingual_catalog_and_resources(tmp_path: Path) -> None:
+    from dataclasses import asdict
+
+    from scripts.build_catalog_index import build
+
+    for locale, name, body in (
+        ("zh", "测试专家", "中文正文"),
+        ("en", "Test expert", "English body"),
+    ):
+        _make_locale(
+            tmp_path,
+            locale,
+            {"engineering": {"label": name}},
+            {
+                "test-agent": {
+                    "division": "engineering",
+                    "name": name,
+                    "description": body,
+                    "body": body,
+                }
+            },
+        )
+    original = SubagentCatalog(tmp_path)
+    original.refresh()
+    build(tmp_path)
+    cached = SubagentCatalog(tmp_path)
+    cached.refresh()
+    assert cached._divisions == original._divisions
+    assert cached._divisions_by_locale == original._divisions_by_locale
+    assert {k: asdict(v) for k, v in cached._subagents.items()} == {
+        k: asdict(v) for k, v in original._subagents.items()
+    }
+    assert list((tmp_path / "library").rglob("*.md"))

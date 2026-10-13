@@ -3,12 +3,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from octop_harness.security.tool_guard.rule_guardian import (
-    list_guard_rule_catalog,
-    read_bundled_rules_yaml,
-    validate_rules_yaml,
-)
-
 from octop.infra.utils.paths import PathLayout
 
 logger = logging.getLogger(__name__)
@@ -32,6 +26,8 @@ class ToolGuardRulesStore:
         return f"~/.xfriend/security/tool_guard/{self.rules_file.name}"
 
     def ensure_seeded(self) -> None:
+        from octop_harness.security.tool_guard.rule_guardian import read_bundled_rules_yaml
+
         self.rules_dir.mkdir(parents=True, exist_ok=True)
         if not self.rules_file.is_file():
             self.rules_file.write_text(read_bundled_rules_yaml(), encoding="utf-8")
@@ -42,6 +38,8 @@ class ToolGuardRulesStore:
         return self.rules_file.read_text(encoding="utf-8")
 
     def save_text(self, content: str) -> tuple[int, list[str]]:
+        from octop_harness.security.tool_guard.rule_guardian import validate_rules_yaml
+
         rules, errors = validate_rules_yaml(content)
         if errors:
             return 0, errors
@@ -50,11 +48,15 @@ class ToolGuardRulesStore:
         return len(rules), []
 
     def reset_to_bundled(self) -> str:
+        from octop_harness.security.tool_guard.rule_guardian import read_bundled_rules_yaml
+
         text = read_bundled_rules_yaml()
         self.ensure_seeded()
         self.rules_file.write_text(text, encoding="utf-8")
         return text
 
     def list_catalog(self) -> list[dict[str, object]]:
+        from octop_harness.security.tool_guard.rule_guardian import list_guard_rule_catalog
+
         self.ensure_seeded()
         return list_guard_rule_catalog(rules_dir=self.rules_dir)

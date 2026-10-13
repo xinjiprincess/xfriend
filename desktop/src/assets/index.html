@@ -80,7 +80,7 @@
       }
       html[data-mode="settings"],
       html[data-mode="settings"] body {
-        overflow: hidden;
+        overflow: auto;
         height: 100%;
         background: var(--bg-primary);
         --window-controls-inset-end: 36px;
@@ -95,6 +95,7 @@
         display: flex;
         flex-direction: column;
         padding: 44px 20px 28px;
+        overflow-y: auto;
       }
       html[data-mode="settings"] #title {
         padding-right: var(--window-controls-inset-end);
@@ -584,6 +585,17 @@
             </label>
           </div>
         </div>
+        <div class="card" style="margin-top: 12px">
+          <div class="row">
+            <div>
+              <div class="label" id="l-update">在线更新</div>
+              <small id="h-update">检查已签名的正式版更新</small>
+            </div>
+            <button class="ghost" id="check-update">检查更新</button>
+          </div>
+        </div>
+        <p class="status hidden" id="update-status"></p>
+        <button class="primary hidden" id="install-update">下载并安装</button>
         <div class="actions">
           <button class="ghost" id="show-assistant">小星助手</button>
           <button class="primary" id="show-main">显示 Singu Xfriend</button>
@@ -609,6 +621,16 @@
           trayH: "点击最小化时隐藏窗口并保留在系统托盘",
           sleep: "防止系统休眠",
           sleepH: "应用运行期间阻止系统自动休眠",
+          update: "在线更新",
+          updateHint: "检查已签名的正式版更新",
+          checkUpdate: "检查更新",
+          updateAvailable: (version) => `发现新版本 ${version}，安装时软件会重启。`,
+          noUpdate: "当前已是最新版本。",
+          installUpdate: "下载并安装",
+          checkingUpdate: "正在检查更新…",
+          downloadingUpdate: "正在下载并校验安装包…",
+          updateFailed: (error) => `更新失败：${error}`,
+          previousFailure: (error) => `上次更新失败：${error}`,
           showMain: "显示 Singu Xfriend",
           quit: "退出",
           winGroup: "窗口控制",
@@ -630,6 +652,16 @@
             "Hide the window on minimize and keep Singu Xfriend in the tray",
           sleep: "Prevent system sleep",
           sleepH: "Keeps the system awake while Singu Xfriend is running",
+          update: "Online updates",
+          updateHint: "Check for signed stable releases",
+          checkUpdate: "Check updates",
+          updateAvailable: (version) => `Version ${version} is available. Installation restarts the app.`,
+          noUpdate: "You are up to date.",
+          installUpdate: "Download and install",
+          checkingUpdate: "Checking for updates…",
+          downloadingUpdate: "Downloading and verifying the installer…",
+          updateFailed: (error) => `Update failed: ${error}`,
+          previousFailure: (error) => `Previous update failed: ${error}`,
           showMain: "Show Singu Xfriend",
           quit: "Quit",
           winGroup: "Window controls",
@@ -664,6 +696,10 @@
         document.getElementById("h-tray").textContent = t.trayH;
         document.getElementById("l-sleep").textContent = t.sleep;
         document.getElementById("h-sleep").textContent = t.sleepH;
+        document.getElementById("l-update").textContent = t.update;
+        document.getElementById("h-update").textContent = t.updateHint;
+        document.getElementById("check-update").textContent = t.checkUpdate;
+        document.getElementById("install-update").textContent = t.installUpdate;
         document.getElementById("show-main").textContent = t.showMain;
         document.getElementById("quit").textContent = t.quit;
         document.getElementById("loading-hint").textContent = t.loadingHint;
@@ -746,6 +782,43 @@
       applyCopy(locale);
 
       if (settingsMode) {
+        const updateText = document.getElementById("update-status");
+        const updateInstall = document.getElementById("install-update");
+        const showUpdateText = (value) => {
+          updateText.textContent = value;
+          updateText.classList.remove("hidden");
+        };
+        call("GetLastUpdateResult").then((result) => {
+          if (result?.state === "failed") {
+            showUpdateText((copy[locale] || copy.en).previousFailure(result.message || ""));
+          }
+        }).catch(() => {});
+        document.getElementById("check-update").addEventListener("click", async () => {
+          const button = document.getElementById("check-update");
+          button.disabled = true;
+          updateInstall.classList.add("hidden");
+          showUpdateText((copy[locale] || copy.en).checkingUpdate);
+          try {
+            const status = await call("CheckForUpdates");
+            const currentCopy = copy[document.getElementById("locale").value] || copy.en;
+            showUpdateText(status.available ? currentCopy.updateAvailable(status.version) : currentCopy.noUpdate);
+            if (status.available) updateInstall.classList.remove("hidden");
+          } catch (error) {
+            showUpdateText((copy[locale] || copy.en).updateFailed(String(error)));
+          } finally {
+            button.disabled = false;
+          }
+        });
+        updateInstall.addEventListener("click", async () => {
+          updateInstall.disabled = true;
+          showUpdateText((copy[locale] || copy.en).downloadingUpdate);
+          try {
+            await call("DownloadAndInstallUpdate");
+          } catch (error) {
+            showUpdateText((copy[locale] || copy.en).updateFailed(String(error)));
+            updateInstall.disabled = false;
+          }
+        });
         document
           .getElementById("show-assistant")
           .addEventListener("click", () => call("ShowAssistant"));

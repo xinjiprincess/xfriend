@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { buildDashboardNotifyWsUrl } from "../api/modules/wsNotifications";
 import { getAuthToken } from "../api/request";
+import { usesCloudAccount } from "../api/modules/cloudAccount";
 import { useAgent } from "../context/AgentContext";
 import { ExpertIcon } from "../pages/Experts/components/iconForName";
 import {
@@ -79,7 +80,7 @@ export function useDashboardPushToast(): void {
     const connect = () => {
       if (closed) return;
       const token = getAuthToken();
-      if (!token) {
+      if (!token && !usesCloudAccount()) {
         scheduleReconnect();
         return;
       }

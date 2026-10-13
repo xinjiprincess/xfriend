@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Native Apple Silicon build. Inputs are already verified, public release assets.
+set -euo pipefail
+test "$(uname -s)" = Darwin
+test "$(uname -m)" = arm64
+: "${XFRIEND_COMPONENTS_DIR:?Set the verified darwin-arm64 components directory}"
+: "${XFRIEND_RELEASE_LICENSE_PROFILE:?Set the public cloud account release profile}"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+version="$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+export GREEN_ROOT="${GREEN_ROOT:-$root/.artifacts/portable-macos-$version}"
+export GREEN_HOST_PLAT=darwin-arm64
+export PBS_BASE_URL=https://github.com/astral-sh/python-build-standalone/releases/download/20251209
+if [[ "${XFRIEND_FRONTEND_READY:-0}" != 1 ]]; then
+  npm --prefix dashboard ci
+  npm --prefix dashboard run build
+fi
+bash desktop/portable/bootstrap-runtime.sh darwin-arm64
+bash desktop/portable/package.sh darwin-arm64
+portable="$GREEN_ROOT/release/Octop-portable-darwin-arm64-$version.zip"
+cd desktop/src
+wails3 task darwin:build ARCH=arm64 VERSION="$version" PRODUCTION=true PORTABLE_ZIP="$portable"
+app="$root/.artifacts/macos-app-$version/Xfriend.app"
+test ! -e "$app"
+mkdir -p "$app/Contents/MacOS/runtimes" "$app/Contents/Resources"
+cp bin/Xfriend "$app/Contents/MacOS/Xfriend"
+cp build/darwin/icons.icns "$app/Contents/Resources/icons.icns"
+cp build/darwin/Info.plist "$app/Contents/Info.plist"
+python3 build/stamp_version.py plist "$app/Contents/Info.plist" "$version"
+/usr/libexec/PlistBuddy -c 'Set :LSMinimumSystemVersion 14.0' "$app/Contents/Info.plist"
+# Predeploy code inside the application: no first-launch runtime extraction.
+ditto "$GREEN_ROOT/release/Octop-darwin-arm64" "$app/Contents/MacOS/runtimes/$version"
+printf '{"version":"%s"}\n' "$version" > "$app/Contents/MacOS/runtime-release.json"
+# Preserve signatures and hashes of pinned runtimes; sign the enclosing app only.
+codesign --force --sign - "$app"
+codesign --verify --deep --strict "$app"
+uv run --project "$root" python "$root/scripts/smoke_macos_desktop.py" --app "$app"
+output="$root/dist/$version-macos-arm64"
+mkdir -p "$output"
+staging="$(mktemp -d "${TMPDIR:-/tmp}/xfriend-dmg.XXXXXX")"
+trap 'rm -rf "$staging"' EXIT
+ditto "$app" "$staging/Xfriend.app"
+ln -s /Applications "$staging/Applications"
+hdiutil create -volname 'Singu Xfriend' -srcfolder "$staging" -ov -format UDZO "$output/Singu-Xfriend-$version-macos-arm64.dmg"
+hdiutil verify "$output/Singu-Xfriend-$version-macos-arm64.dmg"
+cd "$output"
+shasum -a 256 ./*.dmg > SHA256SUMS.txt

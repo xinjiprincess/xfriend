@@ -119,7 +119,7 @@ async def test_permission_nonce_and_cancel(setup, tmp_path):
     dsh.permission = True
     await service.bind(user, "a", "dsh", str(tmp_path))
     task = await service.create(user, ["a"], "task")
-    for _ in range(100):
+    for _ in range(500):
         if task["state"] == "permission":
             break
         await asyncio.sleep(0.01)
@@ -187,3 +187,41 @@ async def test_queued_cancel_and_restart_do_not_repeat_steps(setup):
     assert loaded["state"] == "interrupted"
     assert loaded["permission"] is None
     assert len(native.calls) == 1
+
+
+async def test_dual_groups_synthesize_every_output_without_changing_bindings(setup, tmp_path):
+    service, native, dsh, user = setup
+    await service.bind(user, "a", "dsh", str(tmp_path))
+    before = service._bindings(user.id)
+    task = await service.create_dual(user, ["a"], ["b"], str(tmp_path), "a", "native", "deliver")
+    await finish(service, task)
+    assert task["state"] == "succeeded"
+    assert task["mode"] == "dual"
+    assert [step["engine"] for step in task["steps"]] == ["native", "dsh", "native"]
+    assert task["steps"][-1]["phase"] == "summary"
+    assert "[a · native]" in native.calls[-1][1]
+    assert "[b · dsh]" in native.calls[-1][1]
+    assert "deliver" in native.calls[-1][1]
+    assert service._bindings(user.id) == before
+    assert task["messages"][-1]["phase"] == "summary"
+    await service.followup(user, task["id"], "refine")
+    await finish(service, task)
+    assert len(native.calls) == 4 and len(dsh.calls) == 2
+    assert task["state"] == "succeeded"
+
+
+async def test_dual_plan_rejects_inaccessible_expert_and_invalid_groups(setup, tmp_path):
+    service, _, _, user = setup
+    with pytest.raises(OctopError):
+        await service.create_dual(
+            User(2, "guest", "user", None), ["a"], ["b"], str(tmp_path), "a", "native", "task"
+        )
+    with pytest.raises(OctopError):
+        await service.create_dual(user, [], ["b"], str(tmp_path), "a", "native", "task")
+    with pytest.raises(OctopError):
+        await service.create_dual(user, ["a", "a"], ["b"], str(tmp_path), "a", "native", "task")
+    with pytest.raises(OctopError):
+        await service.create_dual(user, ["a"], ["missing"], str(tmp_path), "a", "native", "task")
+    with pytest.raises(OctopError):
+        await service.create_dual(user, ["a"], ["b"], "relative", "a", "native", "task")
+    assert await service.list_tasks(user.id) == []

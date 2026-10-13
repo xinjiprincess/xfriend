@@ -28,6 +28,22 @@ function agent(
 }
 
 describe("selectEnabledExperts", () => {
+  it("shows restoring experts only in history navigation, never in the send picker", () => {
+    const agents = [
+      agent("ready", "running"),
+      agent("restoring", "starting", { startup_pending: true }),
+      agent("manual-start", "starting"),
+      agent("stopped", "stopped"),
+    ];
+    expect(selectEnabledExperts(agents, null).map((a) => a.agent_id)).toEqual([
+      "ready",
+    ]);
+    expect(
+      selectEnabledExperts(agents, null, { includeStarting: true }).map(
+        (a) => a.agent_id,
+      ),
+    ).toEqual(["ready", "restoring"]);
+  });
   it("keeps only running experts when no resolved id is provided", () => {
     const agents = [
       agent("A", "running"),

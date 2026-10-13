@@ -17,7 +17,10 @@ import type { OctopAgent } from "../../../context/AgentContext";
 import { ExpertIcon } from "../../Experts/components/iconForName";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import { showConfirmModal } from "../../../utils/confirmModal";
-import { isAgentChatReady } from "../../../utils/agentError";
+import {
+  isAgentChatReady,
+  isAgentHistoryReady,
+} from "../../../utils/agentError";
 import { sortSessions, toSession, type Session } from "../hooks/useSessions";
 import { formatThreadTitle } from "../utils/threadTitle";
 import { onSessionEvent, onStreamEvent } from "../hooks/chatStore";
@@ -517,7 +520,7 @@ export default function MinimalAgentSessionNav({
     <div className={`${styles.sessionList} ${styles.minimalAgentNav}`}>
       {sortedAgents.map((agent) => {
         const list = byAgent[agent.agent_id] ?? [];
-        const ready = isAgentChatReady(agent.state);
+        const ready = isAgentHistoryReady(agent.state, agent);
         const expanded = !collapsedFolders.has(agent.agent_id);
 
         return (
@@ -573,6 +576,7 @@ export default function MinimalAgentSessionNav({
               <button
                 type="button"
                 className={styles.minimalAgentNewChatBtn}
+                disabled={!isAgentChatReady(agent.state, agent)}
                 aria-label={t("chatWelcome.newChat")}
                 title={t("chatWelcome.newChat")}
                 onClick={() => onNewChat(agent.agent_id)}

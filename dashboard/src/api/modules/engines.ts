@@ -11,6 +11,7 @@ export interface EngineSession extends EngineSessionSummary {
   expert: string;
   engine_version: string;
   error?: string | null;
+  extensions?: string[];
   messages: { role: string; text: string; tools?: unknown[] }[];
   permission?: {
     title: string;
@@ -21,6 +22,14 @@ export interface EngineSession extends EngineSessionSummary {
 const base = "/engines/dsh/sessions";
 const path = (id: string) => `${base}/${encodeURIComponent(id)}`;
 export const enginesApi = {
+  web: () => request<{ url: string }>("/engines/dsh/web"),
+  extensions: () =>
+    request<{ extensions: MCPExtension[] }>("/engines/dsh/extensions"),
+  setExtensions: (extensions: MCPExtension[]) =>
+    request<{ extensions: MCPExtension[] }>("/engines/dsh/extensions", {
+      method: "PUT",
+      body: JSON.stringify({ extensions }),
+    }),
   list: () => request<EngineSessionSummary[]>(base),
   create: (cwd: string) =>
     request<EngineSession>(base, {
@@ -41,3 +50,13 @@ export const enginesApi = {
   cancel: (id: string) =>
     request<EngineSession>(`${path(id)}/cancel`, { method: "POST" }),
 };
+
+export interface MCPExtension {
+  name: string;
+  transport: "stdio" | "http";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}

@@ -6,12 +6,12 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from octop_harness.plugins import PluginManifest
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from pydantic import BaseModel, ConfigDict, Field
 
 from octop import __version__
+from octop.infra.agents.plugins.metadata import PluginMetadata
 
 
 class Contribution(BaseModel):
@@ -56,7 +56,7 @@ def load_capabilities(
         candidate = (dependencies_root or directory.parent) / requirement.name / "plugin.yaml"
         if not candidate.is_file():
             raise ValueError(f"Missing plugin dependency: {requirement.name}")
-        installed = PluginManifest.load(candidate)
+        installed = PluginMetadata.load(candidate)
         if not requirement.specifier.contains(str(installed.version)):
             raise ValueError(f"Incompatible plugin dependency: {requirement.name}")
     return manifest

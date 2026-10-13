@@ -8,8 +8,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Prefer harness SoT when present (PyPI may lag local editable installs).
-_FALLBACK_SEGMENT_KEYS: tuple[str, ...] = (
+# Stable wire keys; importing the execution SDK here blocks archive-only reads.
+SEGMENT_KEYS: tuple[str, ...] = (
     "system_prompt",
     "tool_definitions",
     "rules",
@@ -18,11 +18,6 @@ _FALLBACK_SEGMENT_KEYS: tuple[str, ...] = (
     "subagent_definitions",
     "conversation",
 )
-
-try:
-    from octop_harness.context_usage import SEGMENT_KEYS as SEGMENT_KEYS
-except ImportError:  # pragma: no cover - older octop-harness wheels
-    SEGMENT_KEYS = _FALLBACK_SEGMENT_KEYS
 
 __all__ = [
     "SEGMENT_KEYS",

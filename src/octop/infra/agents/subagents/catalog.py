@@ -167,6 +167,35 @@ class SubagentCatalog:
         self._subagents: dict[str, SubagentDefinition] = {}
         self._divisions_by_locale: dict[Locale, dict[str, DivisionMeta]] = {}
 
+    def _load_release_index(self, data: dict[str, Any]) -> None:
+        """Read build-generated metadata; originals remain available for seeding."""
+        if data["format"] != 1:
+            raise ValueError("Unsupported bundled subagent catalog index")
+
+        def divisions(rows: dict[str, Any]) -> dict[str, DivisionMeta]:
+            return {
+                key: DivisionMeta(**{**row, "available_locales": tuple(row["available_locales"])})
+                for key, row in rows.items()
+            }
+
+        self._divisions = divisions(data["divisions"])
+        self._divisions_by_locale = {
+            normalize_locale(locale): divisions(rows)
+            for locale, rows in data["divisions_by_locale"].items()
+        }
+        self._subagents = {}
+        for slug, row in data["subagents"].items():
+            summary = row["summary"]
+            definition = SubagentDefinition(
+                **{
+                    **row,
+                    "summary": SubagentSummary(
+                        **{**summary, "available_locales": tuple(summary["available_locales"])}
+                    ),
+                }
+            )
+            self._subagents[slug] = definition
+
     @property
     def root(self) -> Path:
         return self._root
@@ -185,6 +214,11 @@ class SubagentCatalog:
         self._divisions = {}
         self._subagents = {}
         self._divisions_by_locale = {}
+
+        index = self._root / "catalog-index.json"
+        if index.is_file():
+            self._load_release_index(json.loads(index.read_text(encoding="utf-8")))
+            return
 
         if not self._library_root.exists():
             return

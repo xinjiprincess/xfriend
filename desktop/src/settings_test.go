@@ -13,6 +13,15 @@ func TestFirstLaunchUsesChinese(t *testing.T) {
 	}
 }
 
+func TestRelativeDesktopHomeIsAbsoluteBeforeStartingPython(t *testing.T) {
+	working := t.TempDir()
+	t.Chdir(working)
+	t.Setenv("XFRIEND_HOME", "test-home")
+	if got := octopHome(); got != filepath.Join(working, "test-home") {
+		t.Fatalf("relative home does not match the instance-lock scope: %s", got)
+	}
+}
+
 func TestDesktopHomeDoesNotReuseOctopData(t *testing.T) {
 	t.Setenv("OCTOP_HOME", "")
 	home, err := os.UserHomeDir()

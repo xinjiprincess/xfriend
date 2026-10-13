@@ -9,6 +9,7 @@ export interface TeamMemberSummary {
   state?: string;
   is_shared?: boolean;
   user_id?: number | null;
+  default_model?: string | null;
 }
 
 export interface TeamRecord {
@@ -25,6 +26,9 @@ export interface TeamRecord {
   kind: "team";
   member_ids: string[];
   members: TeamMemberSummary[];
+  system_prompt?: string | null;
+  member_models?: Record<string, string>;
+  revision?: string;
 }
 
 export interface TeamWriteBody {
@@ -36,6 +40,9 @@ export interface TeamWriteBody {
   icon_url?: string | null;
   welcome_message?: string | null;
   member_ids?: string[];
+  system_prompt?: string | null;
+  member_models?: Record<string, string>;
+  revision?: string;
 }
 
 export interface TeamTemplateFile {

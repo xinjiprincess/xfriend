@@ -14,6 +14,10 @@ class StartupSnapshot(TypedDict):
     startup_id: str
     phase: str
     ready: bool
+    core_ready: bool
+    runtime_ready: bool
+    runtime_failed: bool
+    agents_ready: bool
     elapsed_ms: int
     checkpoints: dict[str, int]
     failure: str | None
@@ -25,6 +29,10 @@ class StartupProgress:
         self.started = time.monotonic()
         self.phase = "created"
         self.ready = False
+        self.core_ready = False
+        self.runtime_ready = False
+        self.runtime_failed = False
+        self.agents_ready = False
         self.checkpoints: dict[str, int] = {}
         self.failure: str | None = None
 
@@ -39,6 +47,10 @@ class StartupProgress:
             "startup_id": self.startup_id,
             "phase": self.phase,
             "ready": self.ready,
+            "core_ready": self.core_ready,
+            "runtime_ready": self.runtime_ready,
+            "runtime_failed": self.runtime_failed,
+            "agents_ready": self.agents_ready,
             "elapsed_ms": self.checkpoints.get(
                 "ready", int((time.monotonic() - self.started) * 1000)
             ),

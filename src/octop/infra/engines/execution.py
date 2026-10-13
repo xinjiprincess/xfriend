@@ -25,12 +25,44 @@ ACTIVE_STATES = {"queued", "running", "permission"}
 logger = logging.getLogger(__name__)
 
 
+async def list_expert_bindings(
+    repos: RepoBundle, user: User, engines: dict[str, ExecutionEngine] | None = None
+) -> list[dict[str, Any]]:
+    """Read saved bindings before runtime construction; never instantiate engines."""
+    from octop.infra.engines.adapters import DSHEngine, NativeEngine
+
+    capabilities = (
+        {name: engine.capabilities for name, engine in engines.items()}
+        if engines is not None
+        else {"native": NativeEngine.capabilities, "dsh": DSHEngine.capabilities}
+    )
+
+    def read() -> list[dict[str, Any]]:
+        raw = repos.settings_repo.get(f"engine_bindings:{user.id}")
+        bindings = dict(json.loads(raw)) if raw else {}
+        return [
+            {
+                "id": row.agent_id,
+                "name": row.name,
+                **bindings.get(row.agent_id, {"engine": "native", "workspace": ""}),
+                "capabilities": sorted(
+                    capabilities[bindings.get(row.agent_id, {}).get("engine", "native")]
+                ),
+            }
+            for row in repos.agent_repo.list_all(include_disabled=False)
+            if row.kind != "team" and (user.is_admin or row.user_id == user.id or row.is_shared)
+        ]
+
+    return await asyncio.get_running_loop().run_in_executor(None, read)
+
+
 class ExecutionService:
     @property
     def has_active_tasks(self) -> bool:
         return any(not task.done() for task in tuple(self._running.values()))
 
     def __init__(self, home: Path, repos: RepoBundle, engines: dict[str, ExecutionEngine]) -> None:
+        self.home = home
         self.root = home / "execution"
         self.repos = repos
         self.engines = engines
@@ -82,24 +114,7 @@ class ExecutionService:
         return dict(json.loads(raw)) if raw else {}
 
     async def experts(self, user: User) -> list[dict[str, Any]]:
-        def read() -> list[dict[str, Any]]:
-            bindings = self._bindings(user.id)
-            return [
-                {
-                    "id": row.agent_id,
-                    "name": row.name,
-                    **bindings.get(row.agent_id, {"engine": "native", "workspace": ""}),
-                    "capabilities": sorted(
-                        self.engines[
-                            bindings.get(row.agent_id, {}).get("engine", "native")
-                        ].capabilities
-                    ),
-                }
-                for row in self.repos.agent_repo.list_all(include_disabled=False)
-                if row.kind != "team" and (user.is_admin or row.user_id == user.id or row.is_shared)
-            ]
-
-        return await asyncio.get_running_loop().run_in_executor(None, read)
+        return await list_expert_bindings(self.repos, user, self.engines)
 
     async def bind(self, user: User, expert_id: str, engine: str, workspace: str) -> dict[str, Any]:
         # DSH retains its existing administrator-only boundary.
@@ -108,24 +123,7 @@ class ExecutionService:
 
         def save() -> dict[str, Any]:
             row = self._expert(user, expert_id)
-            config = json.loads(row.config_json or "{}")
-            if engine == "dsh":
-                backend = config.get("backend") or {}
-                if backend.get("type", "local") not in {"local", "filesystem", "local_shell"}:
-                    raise OctopError(ErrorCode.SLASH_BAD_ARGS, "DSH requires a local workspace")
-                directory = Path(workspace).expanduser()
-                if (
-                    not directory.is_absolute()
-                    or not directory.is_dir()
-                    or str(directory).startswith(("\\\\", "//"))
-                ):
-                    raise OctopError(
-                        ErrorCode.SLASH_BAD_ARGS, "Select an existing absolute local directory"
-                    )
-                workspace_value = str(directory.resolve())
-            else:
-                workspace_value = ""
-            binding = {"engine": engine, "workspace": workspace_value}
+            binding = self._validated_binding(user, row, engine, workspace)
             bindings = self._bindings(user.id)
             bindings[expert_id] = binding
             self.repos.settings_repo.set(f"engine_bindings:{user.id}", json.dumps(bindings))
@@ -135,6 +133,72 @@ class ExecutionService:
         # Database writes serialize; callers on this event loop use the binding lock.
         async with self._bindings_lock:
             return await asyncio.get_running_loop().run_in_executor(None, save)
+
+    def _validated_binding(
+        self, user: User, row: Any, engine: str, workspace: str
+    ) -> dict[str, str]:
+        if engine not in self.engines or (engine == "dsh" and not user.is_admin):
+            raise OctopError(ErrorCode.FORBIDDEN, "Engine is not available to this user")
+        if engine == "native":
+            return {"engine": engine, "workspace": ""}
+        config = json.loads(row.config_json or "{}")
+        if (config.get("backend") or {}).get("type", "local") not in {
+            "local",
+            "filesystem",
+            "local_shell",
+        }:
+            raise OctopError(ErrorCode.SLASH_BAD_ARGS, "DSH requires a local workspace")
+        directory = Path(workspace).expanduser()
+        if (
+            not directory.is_absolute()
+            or not directory.is_dir()
+            or str(directory).startswith(("\\\\", "//"))
+        ):
+            raise OctopError(
+                ErrorCode.SLASH_BAD_ARGS, "Select an existing absolute local directory"
+            )
+        return {"engine": engine, "workspace": str(directory.resolve())}
+
+    async def create_dual(
+        self,
+        user: User,
+        native_experts: list[str],
+        dsh_experts: list[str],
+        workspace: str,
+        summary_expert: str,
+        summary_engine: str,
+        text: str,
+    ) -> dict[str, Any]:
+        """Run both engine groups and an explicit final synthesis without changing bindings."""
+        if not user.is_admin:
+            raise OctopError(ErrorCode.FORBIDDEN, "DSH requires administrator access")
+        if not text.strip() or any(
+            not 1 <= len(group) <= 3 or len(set(group)) != len(group)
+            for group in (native_experts, dsh_experts)
+        ):
+            raise OctopError(ErrorCode.SLASH_BAD_ARGS, "Choose one to three experts per engine")
+
+        def specs() -> list[dict[str, Any]]:
+            steps = []
+            ordered = [(identity, "native", "work") for identity in native_experts]
+            ordered += [(identity, "dsh", "work") for identity in dsh_experts]
+            ordered.append((summary_expert, summary_engine, "summary"))
+            for expert_id, engine, phase in ordered:
+                row = self._expert(user, expert_id)
+                steps.append(
+                    {
+                        "expert_id": expert_id,
+                        "name": row.name,
+                        **self._validated_binding(user, row, engine, workspace),
+                        "phase": phase,
+                        "session_id": str(uuid.uuid4()),
+                        "system_prompt": row.system_prompt or "",
+                    }
+                )
+            return steps
+
+        steps = await asyncio.get_running_loop().run_in_executor(None, specs)
+        return await self._enqueue(user, steps, text, mode="dual")
 
     async def create(self, user: User, expert_ids: list[str], text: str) -> dict[str, Any]:
         if not text.strip() or not 1 <= len(expert_ids) <= 4:
@@ -160,6 +224,11 @@ class ExecutionService:
             return result
 
         steps = await asyncio.get_running_loop().run_in_executor(None, specs)
+        return await self._enqueue(user, steps, text)
+
+    async def _enqueue(
+        self, user: User, steps: list[dict[str, Any]], text: str, *, mode: str = "sequential"
+    ) -> dict[str, Any]:
         task: dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "user_id": user.id,
@@ -167,6 +236,7 @@ class ExecutionService:
             "created_at": int(time.time()),
             "updated_at": int(time.time()),
             "steps": steps,
+            "mode": mode,
             "messages": [{"role": "user", "content": text}],
             "events": [],
             "permission": None,
@@ -286,7 +356,11 @@ class ExecutionService:
                 task["state"] = "running"
                 await self._event(task, {"type": "started"})
                 previous = text
+                outputs: list[str] = []
                 for index, step in enumerate(task["steps"]):
+                    from octop.infra.licensing.service import require_product_license
+
+                    await require_product_license(self.home)
                     # Re-check access after queueing; disabled/deleted experts cannot run.
                     await asyncio.get_running_loop().run_in_executor(
                         None, self._expert, user, step["expert_id"]
@@ -341,6 +415,21 @@ class ExecutionService:
                         if index == 0
                         else tr("execution.handoff", user.locale, text=text, previous=previous)
                     )
+                    if task.get("mode") == "dual" and index:
+                        # Include every completed expert, with equal per-expert space.
+                        limit = 180_000 // len(outputs)
+                        contributions = "\n\n".join(
+                            output if len(output) <= limit else output[:limit] + "\n[…]"
+                            for output in outputs
+                        )
+                        prompt = tr(
+                            "execution.synthesis"
+                            if step.get("phase") == "summary"
+                            else "execution.collaboration",
+                            user.locale,
+                            text=text,
+                            contributions=contributions,
+                        )
                     if engine.id == "dsh":
                         prompt = tr(
                             "execution.expert",
@@ -365,8 +454,10 @@ class ExecutionService:
                             "expert_id": step["expert_id"],
                             "engine": engine.id,
                             "step": index,
+                            "phase": step.get("phase", "work"),
                         }
                     )
+                    outputs.append(f"[{step['name']} · {engine.id}]\n{previous}")
                     await self._event(task, {"type": "step_completed"})
                 task["state"] = "succeeded"
         except asyncio.CancelledError:

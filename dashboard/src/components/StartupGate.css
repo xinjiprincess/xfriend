@@ -1,0 +1,163 @@
+.xf-startup {
+  display: flex;
+  min-height: 100dvh;
+  background: var(--fn-bg-layout);
+  color: var(--fn-text-primary);
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "Microsoft YaHei",
+    sans-serif;
+  font-size: 15px;
+}
+.xf-startup-sidebar {
+  width: 232px;
+  flex-shrink: 0;
+  padding: 52px 18px 24px;
+  border-right: 1px solid var(--fn-border-color);
+  background: var(--fn-bg-sidebar);
+}
+.xf-startup-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 36px;
+  font-size: 17px;
+}
+.xf-startup-brand img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+}
+.xf-startup-sidebar nav {
+  display: grid;
+  gap: 8px;
+}
+.xf-startup button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.xf-startup button:hover,
+.xf-startup button[aria-current="page"] {
+  background: var(--fn-bg-selected);
+}
+.xf-startup-sidebar p {
+  margin-top: 28px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--fn-text-secondary);
+}
+.xf-startup-main {
+  flex: 1;
+  min-width: 0;
+  padding: 52px 32px 32px;
+}
+.xf-startup-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--fn-text-secondary);
+}
+.xf-startup-dot {
+  width: 8px;
+  height: 8px;
+  background: #6366f1;
+  border-radius: 50%;
+}
+.xf-startup-dot.failed {
+  background: #ef8d42;
+}
+.xf-startup-time {
+  font-variant-numeric: tabular-nums;
+}
+.xf-startup-compose {
+  width: 100%;
+  max-width: 740px;
+  margin: 7vh auto 0;
+}
+.xf-startup-mascot {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  margin-bottom: 14px;
+}
+.xf-startup-compose h1 {
+  font-size: 28px;
+  margin-bottom: 12px;
+}
+.xf-startup-compose p {
+  line-height: 1.8;
+  color: var(--fn-text-secondary);
+}
+.xf-startup-compose label {
+  display: block;
+  margin: 28px 0 10px;
+  font-weight: 600;
+}
+.xf-startup-compose textarea {
+  display: block;
+  width: 100%;
+  min-height: 170px;
+  resize: vertical;
+  padding: 18px;
+  border: 1px solid var(--fn-border-color);
+  border-radius: 16px;
+  background: var(--fn-bg-primary);
+  color: inherit;
+  font: inherit;
+  line-height: 1.7;
+}
+.xf-startup-compose textarea:focus-visible,
+.xf-startup button:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+.xf-startup-compose small {
+  display: block;
+  margin-top: 10px;
+  color: var(--fn-text-secondary);
+  line-height: 1.7;
+}
+.xf-startup-error {
+  margin-top: 20px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--fn-bg-warning-light);
+  overflow-wrap: anywhere;
+}
+.xf-startup-error button {
+  padding: 6px 0;
+}
+@media (max-width: 700px) {
+  .xf-startup-sidebar {
+    width: 78px;
+    padding: 52px 10px 16px;
+  }
+  .xf-startup-brand strong,
+  .xf-startup-sidebar p {
+    display: none;
+  }
+  .xf-startup-sidebar nav button {
+    flex-direction: column;
+    font-size: 11px;
+    gap: 4px;
+    padding: 8px 2px;
+  }
+  .xf-startup-main {
+    padding: 52px 18px 20px;
+  }
+  .xf-startup-compose h1 {
+    font-size: 23px;
+  }
+}

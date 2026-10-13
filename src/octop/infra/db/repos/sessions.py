@@ -236,6 +236,16 @@ class SessionRepo:
             ).fetchall()
         return [SessionRow.from_row(r) for r in rows]
 
+    def recent_agent_ids(self, *, limit: int = 3) -> list[str]:
+        """Return experts with the most recent conversations for boot priority."""
+        with self._db.connect() as conn:
+            rows = conn.execute(
+                "SELECT agent_id FROM sessions GROUP BY agent_id "
+                "ORDER BY MAX(updated_at) DESC, agent_id ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [str(row["agent_id"]) for row in rows]
+
     def unread_totals_by_agent(self, user_id: int, agent_ids: list[str]) -> dict[str, int]:
         if not agent_ids:
             return {}

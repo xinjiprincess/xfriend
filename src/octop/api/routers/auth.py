@@ -66,6 +66,38 @@ class LoginBody(BaseModel):
     captcha_token: str | None = Field(default=None, max_length=4096)
 
 
+class CloudSessionBody(BaseModel):
+    lease: dict[str, str]
+
+
+class CloudSessionResponse(BaseModel):
+    access_token: str
+
+
+@router.post(
+    "/cloud-session",
+    response_model=CloudSessionResponse,
+    summary="Exchange a trusted desktop account lease",
+)
+async def cloud_session(
+    body: CloudSessionBody, request: Request, server: Any = Depends(get_server)
+) -> CloudSessionResponse:
+    from octop.infra.licensing.service import SignedLicense
+    from octop.infra.users.cloud_identity import adopt_cloud_identity
+
+    user = await adopt_cloud_identity(
+        server,
+        SignedLicense.model_validate(body.lease),
+        request.headers.get("x-xfriend-cloud-bridge", ""),
+    )
+    secret = server.services.secret_repo.get("jwt")
+    return CloudSessionResponse(
+        access_token=sign_token(
+            secret, sub=user.id, uname=user.username, role=user.role, ttl_seconds=72 * 3600
+        )
+    )
+
+
 class CaptchaPublicResponse(BaseModel):
     provider: str
     site_key: str | None = None

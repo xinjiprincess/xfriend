@@ -24,6 +24,18 @@ PROFILE_CONFIG_KEYS = frozenset(
 )
 
 
+def skills_disabled_set(cfg: dict[str, Any]) -> set[str]:
+    """Return disabled skill slugs without constructing the execution runtime."""
+    raw = cfg.get("skills_disabled")
+    return {str(item) for item in raw} if isinstance(raw, list) else set()
+
+
+def skill_package_ids_list(cfg: dict[str, Any]) -> list[str]:
+    """Return non-empty persisted skill package ids."""
+    raw = cfg.get("skill_package_ids")
+    return [str(item) for item in raw if str(item).strip()] if isinstance(raw, list) else []
+
+
 def parse_config_json(raw: str | None) -> dict[str, Any]:
     try:
         parsed = json.loads(raw or "{}")

@@ -36,12 +36,40 @@ func pythonExe(root string) string {
 }
 
 func ensurePortable(locale Locale, status func(string)) error {
+	return ensurePortableWithDashboard(locale, status, nil)
+}
+
+func ensurePortableWithDashboard(locale Locale, status func(string), dashboard *desktopServer) error {
+	if exe, err := os.Executable(); err == nil {
+		root, installed, err := installedRuntime(filepath.Dir(exe))
+		if installed {
+			if err != nil {
+				return err
+			}
+			if dashboard != nil {
+				if err := dashboard.verifyRuntime(root); err != nil {
+					return err
+				}
+			}
+			if err := backupInstalledRuntimeUpgrade(root); err != nil {
+				return fmt.Errorf("%s: %w", desktopText(locale, copyErrorBackupFailed), err)
+			}
+			status(desktopText(locale, copyStatusUsingRuntime))
+			return nil
+		}
+	}
+	if requiresInstalledRuntime {
+		return fmt.Errorf("installed runtime-release.json is missing; repair the application installation")
+	}
 	root := portableDir()
 	if launchReady(root) {
 		currentVersion := portableVersion(root)
 		bundledVersion, err := bundledPortableVersion()
-		if err != nil || bundledVersion == "" ||
-			(currentVersion != "" && compareVersions(bundledVersion, currentVersion) <= 0) {
+		reuse := currentVersion != "" && compareVersions(bundledVersion, currentVersion) <= 0
+		if dashboard != nil && currentVersion == bundledVersion && dashboard.verifyRuntime(root) != nil {
+			reuse = false
+		}
+		if err != nil || bundledVersion == "" || reuse {
 			status(desktopText(locale, copyStatusUsingRuntime))
 			return nil
 		}
@@ -384,10 +412,11 @@ func waitHealthForProcess(locale Locale, base string, timeout time.Duration, pro
 				Application string `json:"application"`
 				Protocol    int    `json:"protocol"`
 				Ready       bool   `json:"ready"`
+				CoreReady   bool   `json:"core_ready"`
 			}
 			decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 65536)).Decode(&health)
 			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK && decodeErr == nil && health.OK && health.Ready && health.Application == "xfriend" && health.Protocol == 1 {
+			if resp.StatusCode == http.StatusOK && decodeErr == nil && health.OK && (health.CoreReady || health.Ready) && health.Application == "xfriend" && health.Protocol == 1 {
 				return nil
 			}
 		} else {

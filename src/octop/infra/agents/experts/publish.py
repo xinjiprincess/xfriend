@@ -8,10 +8,8 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
-
-from octop_harness.backends.workspace import BackendWorkspace
 
 from octop.infra.agents.builtin_skills import OCTOP_BUILTIN_SKILLS_ROOT
 from octop.infra.agents.experts.avatar import copy_workspace_avatar_to_dir
@@ -23,6 +21,9 @@ from octop.infra.agents.subagents.catalog import slugify
 from octop.infra.db.repos.published_experts import PublishedExpertRepo, PublishedExpertRow
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.users.identity import User
+
+if TYPE_CHECKING:
+    from octop_harness.backends.workspace import BackendWorkspace
 
 _EXCLUDED_PARTS = frozenset(
     {

@@ -29,6 +29,7 @@ import MentionPickerMenu from "./MentionPickerMenu";
 import ChatInputPreviewBar from "./ChatInputPreviewBar";
 import ChatInputActionsRow from "./ChatInputActionsRow";
 import ChatQueuedMessages from "./ChatQueuedMessages";
+import StartupDraftBanner from "../../../components/StartupDraftBanner";
 import { useVoiceInput } from "../../../hooks/useVoiceInput";
 import { useChatAttachments } from "../hooks/useChatAttachments";
 import { useSlashMentionInput } from "../hooks/useSlashMentionInput";
@@ -731,6 +732,13 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
+        <StartupDraftBanner
+          onInsert={(draft) => {
+            setComposerText(text.trim() ? `${text}\n\n${draft}` : draft);
+            onUserInput?.();
+            textareaRef.current?.focus();
+          }}
+        />
         {onRemoveQueued && onReclaimQueued && (
           <ChatQueuedMessages
             items={queuedItems}

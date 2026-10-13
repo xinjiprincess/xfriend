@@ -13,11 +13,11 @@ def test_skill_display_name_known_zh():
 
 
 def test_skill_display_name_octop_assistant_slug_zh():
-    assert skill_display_name("octop-assistant", "zh") == "Singu Xfriend 助手"
+    assert skill_display_name("octop-assistant", "zh") == "Xfriend 助手"
 
 
 def test_skill_display_name_octop_assistant_name_zh():
-    assert skill_display_name("octop_assistant", "zh") == "Singu Xfriend 助手"
+    assert skill_display_name("octop_assistant", "zh") == "Xfriend 助手"
 
 
 def test_skill_display_name_unknown_passthrough():
@@ -31,7 +31,7 @@ def test_skill_display_name_empty_passthrough():
 def test_all_skill_labels_includes_pdf():
     labels = all_skill_labels("en")
     assert labels["docx"] == "Word"
-    assert labels["octop-assistant"] == "Singu Xfriend Assistant"
+    assert labels["octop-assistant"] == "Xfriend Assistant"
 
 
 def test_dashboard_skill_labels_match_backend():

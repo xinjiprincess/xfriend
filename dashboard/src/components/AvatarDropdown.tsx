@@ -30,6 +30,8 @@ import { useTranslation } from "react-i18next";
 import { authApi } from "../api/modules/auth";
 import { preferencesApi } from "../api/modules/preferences";
 import { clearAuthToken } from "../api/request";
+import { cloudAccountApi, usesCloudAccount } from "../api/modules/cloudAccount";
+import { useCloudAccount } from "../context/CloudAccountContext";
 import { applyGuestLocale, applyUserLocale } from "../utils/locale";
 import { apiErrorMessage } from "../utils/apiError";
 import { isSsoPopupMessage, openSsoPopup } from "../utils/ssoPopup";
@@ -119,13 +121,16 @@ export default function AvatarDropdown({
     confirm: string;
   }>();
 
+  const cloudAccount = useCloudAccount();
   const handleLogout = useCallback(async () => {
     setMenuOpen(false);
-    await authApi.logout();
+    if (usesCloudAccount())
+      cloudAccount?.update(await cloudAccountApi.logout());
+    else await authApi.logout();
     clearAuthToken();
     await applyGuestLocale();
     navigate("/login", { replace: true });
-  }, [navigate]);
+  }, [navigate, cloudAccount]);
 
   const handleSaveProfile = async (values: { display_name: string }) => {
     setSaving(true);
@@ -376,7 +381,18 @@ export default function AvatarDropdown({
         </button>
       ) : null}
 
-      <button type="button" className={styles.menuItem} onClick={openSettings}>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={
+          usesCloudAccount()
+            ? () => {
+                setMenuOpen(false);
+                navigate("/settings/account");
+              }
+            : openSettings
+        }
+      >
         <Settings size={16} strokeWidth={1.8} />
         <span>{t("account.settings")}</span>
       </button>

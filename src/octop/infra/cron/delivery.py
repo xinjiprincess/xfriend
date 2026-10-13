@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from inspect import iscoroutinefunction
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -75,6 +76,13 @@ class CronDeliveryService:
                 raise ValueError(
                     f"session {command.session_key!r} does not belong to user {command.user_id!r}"
                 )
+            prepare_runtime = getattr(self._agent_manager, "ensure_agent_runtime", None)
+            needs_runtime = (
+                command.task_type != "text"
+                or session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD
+            )
+            if needs_runtime and iscoroutinefunction(prepare_runtime):
+                await prepare_runtime(command.agent_id)
             if command.task_type == "text":
                 await self._deliver_text(command, session)
             else:

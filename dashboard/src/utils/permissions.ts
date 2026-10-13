@@ -213,7 +213,12 @@ export function pathPermissionKeys(pathname: string): PermissionKeys | null {
     return PERM.workbench;
   }
   // ACP: no module key this round — admin role only.
-  if (pathname === "/acp" || pathname.startsWith("/acp/")) {
+  if (
+    pathname === "/acp" ||
+    pathname.startsWith("/acp/") ||
+    pathname === "/engines/dsh" ||
+    pathname === "/engines/dual"
+  ) {
     return "admin";
   }
   return null;

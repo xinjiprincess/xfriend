@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import shutil
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -14,22 +15,15 @@ import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
 import yaml
-from octop_harness.plugins import (
-    LoadedPlugin,
-    PluginManifest,
-    PluginRegistry,
-    discover_plugin_dirs,
-    load_plugin_dir,
-    unload_plugin,
-)
 
 from octop.infra.agents.plugins.capabilities import load_capabilities
 from octop.infra.agents.plugins.dependencies import dependencies_satisfied
 from octop.infra.agents.plugins.legacy_imports import ensure_legacy_harness_agent_alias
+from octop.infra.agents.plugins.metadata import PluginMetadata, discover_plugin_dirs
 from octop.infra.errors import ErrorCode, OctopError, corrupt_config_error
 from octop.infra.utils.json_file import (
     JsonFileCorruptError,
@@ -38,6 +32,33 @@ from octop.infra.utils.json_file import (
 )
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from octop_harness.plugins import LoadedPlugin
+    from octop_harness.plugins import PluginRegistry as RuntimePluginRegistry
+
+
+def _plugin_registry() -> RuntimePluginRegistry:
+    from octop_harness.plugins import PluginRegistry
+
+    return PluginRegistry()
+
+
+def _peek_loaded_plugin(plugin_id: str) -> LoadedPlugin | None:
+    # sys.modules contains a module before its initialization has finished.
+    # Never take that module's import lock from a control-plane list request.
+    module = sys.modules.get("octop_harness.plugins")
+    registry_type = cast(
+        "type[RuntimePluginRegistry] | None", getattr(module, "PluginRegistry", None)
+    )
+    return registry_type().get(plugin_id) if registry_type is not None else None
+
+
+def unload_plugin(plugin_id: str) -> None:
+    from octop_harness.plugins import unload_plugin as unload
+
+    unload(plugin_id)
+
 
 _GITHUB_BLOB_RE = re.compile(
     r"^https?://(?:www\.)?github\.com/"
@@ -66,6 +87,8 @@ def normalize_plugin_download_url(url: str) -> str:
 
 def _load_plugin_dir(plugin_dir: Path, *, install_deps: bool) -> LoadedPlugin:
     """Load one plugin, accepting the pre-rename ``harness_agent`` import."""
+    from octop_harness.plugins import PluginManifest, load_plugin_dir
+
     ensure_legacy_harness_agent_alias()
     manifest = PluginManifest.load(plugin_dir / "plugin.yaml")
     load_capabilities(plugin_dir, manifest.id)
@@ -361,7 +384,7 @@ class PluginManager:
             return out
         for plugin_dir in discover_plugin_dirs(root):
             try:
-                manifest = PluginManifest.load(plugin_dir / "plugin.yaml")
+                manifest = PluginMetadata.load(plugin_dir / "plugin.yaml")
             except Exception as exc:
                 out.append(
                     {
@@ -427,13 +450,19 @@ class PluginManager:
             raise OctopError(ErrorCode.NOT_FOUND, "invalid marketplace asset path")
         return self._resolve_plugin_asset(plugin_dir, cleaned)
 
+    def reload_installed(self, *, install_deps: bool = True) -> list[LoadedPlugin]:
+        """Explicit reload must not clear registrations while experts are starting."""
+        with self._mutation_lock:
+            self._assert_idle()
+            return self.load_installed(install_deps=install_deps)
+
     def load_installed(self, *, install_deps: bool = True) -> list[LoadedPlugin]:
         enabled = self.global_enabled_map()
-        PluginRegistry().clear()
+        _plugin_registry().clear()
         loaded: list[LoadedPlugin] = []
         for plugin_dir in discover_plugin_dirs(self._plugins_dir):
             try:
-                manifest = PluginManifest.load(plugin_dir / "plugin.yaml")
+                manifest = PluginMetadata.load(plugin_dir / "plugin.yaml")
                 load_capabilities(plugin_dir, manifest.id)
             except Exception as exc:
                 logger.error("skip plugin dir %s: %s", plugin_dir, exc)
@@ -465,13 +494,13 @@ class PluginManager:
         newly: list[LoadedPlugin] = []
         for plugin_dir in discover_plugin_dirs(self._plugins_dir):
             try:
-                manifest = PluginManifest.load(plugin_dir / "plugin.yaml")
+                manifest = PluginMetadata.load(plugin_dir / "plugin.yaml")
             except Exception as exc:
                 logger.error("skip plugin dir %s: %s", plugin_dir, exc)
                 continue
             if enabled.get(manifest.id) is False:
                 continue
-            if PluginRegistry().get(manifest.id) is not None:
+            if _plugin_registry().get(manifest.id) is not None:
                 continue
             try:
                 newly.append(_load_plugin_dir(plugin_dir, install_deps=install_deps))
@@ -494,7 +523,7 @@ class PluginManager:
         enabled_map = self.global_enabled_map()
         for plugin_dir in discover_plugin_dirs(self._plugins_dir):
             try:
-                manifest = PluginManifest.load(plugin_dir / "plugin.yaml")
+                manifest = PluginMetadata.load(plugin_dir / "plugin.yaml")
                 load_capabilities(plugin_dir, manifest.id)
             except Exception as exc:
                 out.append(
@@ -506,7 +535,7 @@ class PluginManager:
                     },
                 )
                 continue
-            loaded = PluginRegistry().get(manifest.id)
+            loaded = _peek_loaded_plugin(manifest.id)
             ui_meta = parse_plugin_ui_meta(plugin_dir)
             if loaded is not None:
                 tools_meta = [
@@ -556,14 +585,14 @@ class PluginManager:
         if plugin_dir is None:
             raise OctopError(ErrorCode.NOT_FOUND, f"plugin {plugin_id!r} not found")
         try:
-            PluginManifest.load(plugin_dir / "plugin.yaml")
+            PluginMetadata.load(plugin_dir / "plugin.yaml")
         except Exception as exc:
             raise OctopError(
                 ErrorCode.PLUGIN_INVALID_ARCHIVE,
                 f"invalid plugin manifest: {exc}",
             ) from exc
 
-        if enabled and PluginRegistry().get(plugin_id) is None:
+        if enabled and _plugin_registry().get(plugin_id) is None:
             try:
                 _load_plugin_dir(plugin_dir, install_deps=False)
             except Exception as exc:
@@ -574,7 +603,7 @@ class PluginManager:
                 ) from exc
         _write_global_plugin_enabled(self._config_path, plugin_id, enabled)
         if not enabled:
-            loaded = PluginRegistry().get(plugin_id)
+            loaded = _plugin_registry().get(plugin_id)
             if loaded is not None:
                 self._tool_catalog[plugin_id] = [
                     {
@@ -656,7 +685,7 @@ class PluginManager:
                 f"plugin directory not found: {source}",
             )
         try:
-            manifest = PluginManifest.load(source / "plugin.yaml")
+            manifest = PluginMetadata.load(source / "plugin.yaml")
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", manifest.id):
                 raise ValueError("Invalid plugin identifier")
             load_capabilities(source, manifest.id, dependencies_root=self._plugins_dir)
@@ -717,7 +746,7 @@ class PluginManager:
         result = []
         for folder in sorted(root.iterdir(), key=lambda path: path.stat().st_mtime, reverse=True):
             if folder.is_dir() and (folder / "plugin.yaml").is_file():
-                manifest = PluginManifest.load(folder / "plugin.yaml")
+                manifest = PluginMetadata.load(folder / "plugin.yaml")
                 result.append({"id": folder.name, "version": str(manifest.version)})
         return result
 
@@ -819,7 +848,7 @@ class PluginManager:
 
     def plugin_skill_names(self, plugin_id: str) -> set[str]:
         """Return skill directory names registered by one loaded plugin."""
-        plugin = PluginRegistry().get(plugin_id)
+        plugin = _plugin_registry().get(plugin_id)
         if plugin is None or plugin.skills_dir is None:
             return set(self._skill_catalog.get(plugin_id) or ())
         names = {
@@ -844,7 +873,7 @@ class PluginManager:
             return
         enabled = self.global_enabled_map()
         pairs: list[tuple[str, bytes]] = []
-        for plugin in PluginRegistry().list_plugins():
+        for plugin in _plugin_registry().list_plugins():
             if enabled.get(plugin.manifest.id) is False:
                 continue
             if not agent_plugin_enabled(agent_plugins, plugin.manifest.id):

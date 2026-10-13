@@ -8,7 +8,6 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
-from octop_harness.backends.utils import BackendOperationNotSupportedError
 from pydantic import BaseModel
 
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
@@ -55,6 +54,8 @@ def _assert_workspace_mutable(path: str) -> str:
 
 
 def _map_workspace_fs_error(exc: Exception, *, operation: str, path: str) -> OctopError:
+    from octop_harness.backends.utils import BackendOperationNotSupportedError
+
     if isinstance(exc, BackendOperationNotSupportedError):
         return OctopError(ErrorCode.WORKSPACE_OP_UNSUPPORTED, str(exc))
     if isinstance(exc, FileNotFoundError):

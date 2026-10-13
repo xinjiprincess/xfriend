@@ -687,6 +687,9 @@ async def test_global_processor_iter_turn_chunks_slash(tmp_path: Path) -> None:
     agent_manager = MagicMock()
     agent_manager.get_agent.return_value = harness
 
+    # Metadata slash commands must not wait for a stopped/failed model runtime.
+    agent_manager.ensure_agent_runtime = AsyncMock(side_effect=RuntimeError("model stopped"))
+
     dispatcher = build_default_dispatcher()
     processor = GlobalProcessor(
         agent_manager=agent_manager,
@@ -713,6 +716,7 @@ async def test_global_processor_iter_turn_chunks_slash(tmp_path: Path) -> None:
     chunks = [c async for c in processor.iter_turn_chunks(msg)]
     assert chunks[0]["type"] == "token"
     assert chunks[-1]["type"] == "done"
+    agent_manager.ensure_agent_runtime.assert_not_awaited()
     thread_registry.get_or_create_by_key.assert_not_awaited()
     harness.aappend_messages.assert_awaited_once()
     append_thread, append_messages = harness.aappend_messages.await_args.args

@@ -19,6 +19,7 @@ import { apiErrorMessage } from "../../utils/apiError";
 import { refreshServerLabels } from "../../i18n";
 import { applyUserLocale, applyGuestLocale } from "../../utils/locale";
 import { useTheme } from "../../context/ThemeContext";
+import { useStartupDraft } from "../../context/StartupDraftContext";
 import {
   isSsoPopup,
   isSsoPopupMessage,
@@ -31,6 +32,8 @@ import wecomIcon from "../../assets/channels/wecom.svg";
 import googleIcon from "../../assets/providers/google.svg";
 import CaptchaField, { type CaptchaFieldHandle } from "./CaptchaField";
 import ForgotPasswordModal from "./ForgotPasswordModal";
+import CloudLogin from "./CloudLogin";
+import { usesCloudAccount } from "../../api/modules/cloudAccount";
 import { type PublicCaptchaConfig } from "./captchaAdapters";
 
 function providerLabel(
@@ -73,8 +76,13 @@ function providerIcon(provider: OauthProviderStatus): ReactNode {
 }
 
 export default function LoginPage() {
+  return usesCloudAccount() ? <CloudLogin /> : <LocalLoginPage />;
+}
+
+function LocalLoginPage() {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  const { ready: serviceReady, startupError } = useStartupDraft();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [username, setUsername] = useState("");
@@ -97,6 +105,7 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
+    if (!serviceReady) return;
     let cancelled = false;
     authApi
       .getAuthStatus()
@@ -139,7 +148,7 @@ export default function LoginPage() {
     return () => {
       cancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, serviceReady]);
 
   useEffect(() => {
     const code = searchParams.get("oidc_error");
@@ -218,7 +227,7 @@ export default function LoginPage() {
   };
 
   const handleLogin = async () => {
-    if (!username || !password || !captchaReady) return;
+    if (!serviceReady || !username || !password || !captchaReady) return;
     setLoading(true);
     try {
       const token = await captchaRef.current?.getToken();
@@ -296,6 +305,14 @@ export default function LoginPage() {
         >
           {t("login.title")}
         </h2>
+        {!serviceReady && (
+          <p
+            role={startupError ? "alert" : "status"}
+            style={{ color: "var(--fn-text-tertiary)", margin: 0 }}
+          >
+            {startupError || t("startup.preparing")}
+          </p>
+        )}
 
         <div style={{ width: "100%" }}>
           <Input
@@ -369,7 +386,7 @@ export default function LoginPage() {
           block
           loading={loading}
           onClick={handleLogin}
-          disabled={!username || !password || !captchaReady}
+          disabled={!serviceReady || !username || !password || !captchaReady}
           style={{ borderRadius: 10, height: 44, fontWeight: 500 }}
         >
           {t("login.submit")}

@@ -21,6 +21,12 @@ for line in sys.stdin:
     method = request.get("method")
     with log.open("a", encoding="utf-8") as stream:
         stream.write(str(method) + "\n")
+    if method in {"session/new", "session/resume"}:
+        with (log.parent / "mcp-calls.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps({"method": method, "servers": request["params"].get("mcpServers", [])})
+                + "\n"
+            )
     if method == "initialize":
         reply(request["id"], {"protocolVersion": 1, "agentCapabilities": {}})
     elif method == "session/new":

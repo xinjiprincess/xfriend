@@ -5,11 +5,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from octop_harness.backends.workspace import BackendWorkspace
-
 from octop.infra.gateway.media.ingress import AgentBackedMediaBackend
 
 if TYPE_CHECKING:
+    from octop_harness.backends.workspace import BackendWorkspace
+
     from octop.infra.agents.manager import AgentManager
 
 logger = logging.getLogger(__name__)

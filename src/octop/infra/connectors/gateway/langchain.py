@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from octop_harness.mcp import mcp_args_model
-
 from octop.infra.agents.plugins.plugin_tool_names import sanitize_plugin_tool_name
 from octop.infra.connectors.catalog import ConnectorCatalogEntry, is_inprocess_gateway
 from octop.infra.connectors.gateway.protocol import handle_mcp_request
@@ -22,6 +20,7 @@ def build_gateway_langchain_tools(
 ) -> list[Any]:
     """In-process LangChain tools when harness HTTP MCP load misses gateway servers."""
     from langchain_core.tools import StructuredTool
+    from octop_harness.mcp import mcp_args_model
 
     del instance_id
     if not isinstance(entry, ConnectorCatalogEntry) or not is_inprocess_gateway(entry):

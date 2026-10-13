@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from scalar_fastapi import get_scalar_api_reference
@@ -16,18 +17,12 @@ from scalar_fastapi import get_scalar_api_reference
 from octop.api.middleware.jwt_auth import install as install_jwt_auth
 from octop.api.middleware.setup_lockdown import install as install_setup_lockdown
 from octop.api.openapi_meta import API_DESCRIPTION, OPENAPI_TAGS, configure_openapi
+from octop.api.router_catalog import RouterSpec
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.server import OctopServer
 from octop.infra.utils.locale import resolve_request_locale
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class _RouterMount:
-    router: Any
-    prefix: str
-    tags: Sequence[str]
 
 
 _NO_CACHE_DASHBOARD_NAMES = frozenset({"sw.js", "manifest.json", "index.html"})
@@ -69,9 +64,10 @@ def _dashboard_fallback(index_file: Path, full_path: str) -> FileResponse:
     return _dashboard_response(index_file, "")
 
 
-def _mount_routers(app: FastAPI, mounts: Sequence[_RouterMount]) -> None:
+def _mount_routers(app: FastAPI, mounts: Sequence[RouterSpec]) -> None:
     for spec in mounts:
-        app.include_router(spec.router, prefix=spec.prefix, tags=list(spec.tags))
+        router = getattr(import_module(spec.module), spec.attribute)
+        app.include_router(router, prefix=spec.prefix, tags=list(spec.tags))
 
 
 def _install_exception_handlers(app: FastAPI) -> None:
@@ -98,7 +94,31 @@ def _install_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(status_code=err.status, content=err.to_envelope())
 
 
-def build_app(server: OctopServer) -> FastAPI:
+async def complete_deferred_routes(app: FastAPI) -> None:
+    """Construct optional routes off-loop, then insert before the SPA fallback."""
+    pending = app.state.pending_router_specs
+    if not pending:
+        return
+
+    def prepare() -> APIRouter:
+        router = APIRouter()
+        for spec in pending:
+            child = getattr(import_module(spec.module), spec.attribute)
+            router.include_router(child, prefix=spec.prefix, tags=list(spec.tags))
+        return router
+
+    router = await asyncio.to_thread(prepare)
+    position = app.state.deferred_route_position
+    previous_count = len(app.router.routes)
+    app.include_router(router)
+    added = app.router.routes[previous_count:]
+    del app.router.routes[previous_count:]
+    app.router.routes[position:position] = added
+    app.state.pending_router_specs = []
+    app.openapi_schema = None
+
+
+def build_app(server: OctopServer, *, defer_optional_routes: bool = False) -> FastAPI:
     cfg = server.services.config if server.services else getattr(server, "config", None)
     enable_dashboard = cfg.enable_dashboard if cfg else True
     enable_api_docs = cfg.enable_api_docs if cfg else False
@@ -137,15 +157,33 @@ def build_app(server: OctopServer) -> FastAPI:
     install_jwt_auth(app, server)
     install_setup_lockdown(app, server)
 
-    if server.app_runtime is not None and server.app_runtime.bridge_manager is not None:
+    from octop.api.middleware.licensing import LicensingMiddleware
+    from octop.infra.licensing.service import load_profile
+
+    if load_profile()[1]:
+        app.add_middleware(LicensingMiddleware, home=server.paths.root)
+
+    from octop.api.middleware.startup import StartupMiddleware
+
+    app.add_middleware(
+        StartupMiddleware,
+        server=server,
+        optional_routes_pending=lambda: bool(app.state.pending_router_specs),
+    )
+
+    def bind_runtime(runtime: Any) -> None:
+        if runtime.bridge_manager is None:
+            return
         from octop.api.bridge_peer import prepare_peer_dashboard_turn
         from octop.api.routers.browser.stream import run_browser_stream_session
 
-        server.app_runtime.bridge_manager.bind_asgi_app(
+        runtime.bridge_manager.bind_asgi_app(
             app,
             peer_turn_runner=prepare_peer_dashboard_turn,
             peer_browser_runner=run_browser_stream_session,
         )
+
+    server.register_runtime_ready_callback(bind_runtime)
 
     from octop.infra.setup.tls.challenge import challenge_store
 
@@ -156,153 +194,14 @@ def build_app(server: OctopServer) -> FastAPI:
             raise HTTPException(status_code=404, detail="challenge not found")
         return PlainTextResponse(body)
 
-    from octop.api.routers import (
-        acp,
-        admin,
-        agent_files,
-        agent_tools,
-        agents,
-        auth,
-        auth_ldap,
-        auth_oauth,
-        auth_oidc,
-        backup,
-        bridge,
-        browser,
-        channels,
-        chat,
-        connectors,
-        cron,
-        desktop,
-        engines,
-        envs,
-        execution,
-        experts,
-        health,
-        i18n,
-        internal_mcp,
-        invites,
-        knowledge_bases,
-        mbti,
-        media_generation,
-        memory,
-        memory_portable,
-        mobile,
-        ollama_models,
-        onnx_models,
-        platform_collaboration,
-        plugins,
-        preferences,
-        proactive_care,
-        providers,
-        search,
-        settings,
-        setup,
-        skill_packages,
-        skills,
-        slash,
-        subagents,
-        teams,
-        terminal,
-        update,
-        uploads,
-        usage,
-        user_roles,
-        users,
-        voice,
-        workspace,
-    )
-    from octop.api.routers.filesystem import router as filesystem_router
-    from octop.api.routers.observability import router as observability_router
-    from octop.api.routers.providers import admin_router as admin_providers_router
-    from octop.api.routers.security import router as security_router
-    from octop.api.routers.storage_backends import admin_router as admin_storage_router
-    from octop.api.routers.storage_backends import user_router as storage_backends_user_router
-    from octop.api.routers.tls import router as tls_router
-    from octop.api.routers.voice import admin_router as admin_voice_router
+    from octop.api.router_catalog import CORE_MODULES, MOBILE_ROUTER, ROUTERS
 
-    _mount_routers(
-        app,
-        [
-            _RouterMount(setup.router, "/api", ["setup"]),
-            _RouterMount(auth.router, "/api/auth", ["auth"]),
-            _RouterMount(auth_oidc.router, "/api/auth", ["auth"]),
-            _RouterMount(auth_oauth.router, "/api/auth", ["auth"]),
-            _RouterMount(auth_ldap.router, "/api/auth", ["auth"]),
-            _RouterMount(invites.public_router, "/api/auth/invite", ["auth"]),
-            _RouterMount(preferences.router, "/api", ["auth"]),
-            _RouterMount(i18n.router, "/api", ["i18n"]),
-            _RouterMount(health.router, "/api/health", ["health"]),
-            _RouterMount(invites.admin_router, "/api/users/invites", ["users"]),
-            _RouterMount(user_roles.router, "/api/users/roles", ["users"]),
-            _RouterMount(users.router, "/api/users", ["users"]),
-            _RouterMount(agents.router, "/api/agents", ["agents"]),
-            _RouterMount(agent_tools.router, "/api", ["agents"]),
-            _RouterMount(acp.router, "/api", ["agents"]),
-            _RouterMount(engines.router, "/api", ["agents"]),
-            _RouterMount(execution.router, "/api", ["agents"]),
-            _RouterMount(platform_collaboration.router, "/api", ["connectors"]),
-            _RouterMount(chat.router, "/api", ["chat"]),
-            _RouterMount(slash.router, "/api", ["slash"]),
-            _RouterMount(connectors.router, "/api", ["connectors"]),
-            _RouterMount(bridge.router, "/api", ["bridge"]),
-            _RouterMount(knowledge_bases.router, "/api", ["knowledge"]),
-            _RouterMount(internal_mcp.router, "/api", ["internal-mcp"]),
-            _RouterMount(channels.router, "/api", ["channels"]),
-            _RouterMount(cron.router, "/api", ["cron"]),
-            _RouterMount(settings.router, "/api", ["settings"]),
-            _RouterMount(envs.router, "/api", ["envs"]),
-            _RouterMount(search.router, "/api", ["search"]),
-            _RouterMount(providers.router, "/api/providers", ["providers"]),
-            _RouterMount(voice.router, "/api/voice", ["voice"]),
-            _RouterMount(admin.router, "/api/admin", ["admin"]),
-            _RouterMount(backup.router, "/api/admin", ["admin"]),
-            _RouterMount(admin_providers_router, "/api/admin/providers", ["admin"]),
-            _RouterMount(admin_voice_router, "/api/admin/voice/providers", ["admin"]),
-            _RouterMount(observability_router, "/api/admin/observability", ["observability"]),
-            _RouterMount(
-                media_generation.router,
-                "/api/admin/media-generation",
-                ["providers"],
-            ),
-            _RouterMount(tls_router, "/api/admin/tls", ["tls"]),
-            _RouterMount(security_router, "/api/admin/security", ["security"]),
-            _RouterMount(admin_storage_router, "/api/admin/storage-backends", ["admin"]),
-            _RouterMount(
-                storage_backends_user_router, "/api/storage-backends", ["storage-backends"]
-            ),
-            _RouterMount(filesystem_router, "/api/filesystem", ["filesystem"]),
-            _RouterMount(mbti.router, "/api", ["mbti"]),
-            _RouterMount(experts.router, "/api", ["experts"]),
-            _RouterMount(teams.router, "/api", ["teams"]),
-            _RouterMount(workspace.router, "/api", ["workspace"]),
-            _RouterMount(agent_files.router, "/api", ["agent_files"]),
-            _RouterMount(memory.router, "/api", ["memory"]),
-            _RouterMount(memory_portable.router, "/api", ["memory"]),
-            _RouterMount(proactive_care.router, "/api", ["proactive-care"]),
-            _RouterMount(usage.router, "/api", ["usage"]),
-            _RouterMount(usage.admin_router, "/api/admin", ["admin"]),
-            _RouterMount(skill_packages.router, "/api", ["skill-packages"]),
-            _RouterMount(skills.router, "/api", ["skills"]),
-            _RouterMount(subagents.router, "/api", ["subagents"]),
-            _RouterMount(terminal.router, "/api", ["terminal"]),
-            _RouterMount(uploads.router, "/api", ["chat"]),
-            _RouterMount(update.router, "/api", ["update"]),
-            _RouterMount(browser.router, "/api", ["browser"]),
-            _RouterMount(desktop.router, "/api", ["desktop"]),
-            _RouterMount(ollama_models.router, "/api", ["ollama"]),
-            _RouterMount(onnx_models.router, "/api", ["onnx"]),
-            _RouterMount(plugins.router, "/api", ["plugins"]),
-        ],
-    )
-
-    if enable_mobile:
-        _mount_routers(
-            app,
-            [
-                _RouterMount(mobile.router, "/api", ["mobile"]),
-            ],
-        )
+    specs = (*ROUTERS, MOBILE_ROUTER) if enable_mobile else ROUTERS
+    initial = [spec for spec in specs if not defer_optional_routes or spec.module in CORE_MODULES]
+    pending = [spec for spec in specs if spec not in initial]
+    _mount_routers(app, initial)
+    app.state.pending_router_specs = pending
+    app.state.deferred_route_position = len(app.router.routes)
 
     if enable_api_docs:
 

@@ -31,7 +31,6 @@ from octop.infra.agents.experts.publish import (
     export_agent_workspace_to_dir,
     resolve_published_expert_slug,
 )
-from octop.infra.agents.manager import AgentCreateSpec
 from octop.infra.db.repos.published_experts import PublishedExpertRow
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.history.trajectory.settings import apply_enable_trajectory
@@ -384,6 +383,8 @@ async def install_published_expert(
             )
         if options.quick_prompts is not None:
             await apply_workspace_quick_prompts(workspace, options.quick_prompts)
+
+    from octop.infra.agents.manager import AgentCreateSpec
 
     created = await registry.create(
         AgentCreateSpec(

@@ -13,6 +13,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 _OPEN_PREFIXES = (
+    "/api/licensing/",
     "/api/setup/",
     "/api/health/",
 )
@@ -28,7 +29,7 @@ def install(app: Any, server: Any) -> None:
         if not path.startswith("/api/"):
             return await call_next(request)
         cfg = server.services.config if server.services else getattr(server, "config", None)
-        open_exact = ["/api/health"]
+        open_exact = ["/api/health", "/api/auth/cloud-session"]
         if cfg and cfg.enable_api_docs:
             open_exact.extend(("/api/docs", "/api/openapi.json"))
         if path in open_exact or any(path.startswith(p) for p in _OPEN_PREFIXES):

@@ -1,16 +1,16 @@
 {
   "id": "general-assistant",
   "label": {
-    "zh": "小通 · 通用助手",
-    "en": "Main · General Assistant"
+    "zh": "Xfriend 助手",
+    "en": "Xfriend Assistant"
   },
   "description": {
-    "zh": "友好的通用助手，无特定技能，适合作为起点或日常对话。",
-    "en": "A friendly, no-skills default assistant — the safe starting point."
+    "zh": "Singu Xfriend 的通用助手，帮助你使用专家、团队、双引擎、插件和日常功能。",
+    "en": "Your Singu Xfriend assistant for experts, teams, engines, plugins, and everyday tasks."
   },
   "welcome_message": {
-    "zh": "无论工作还是生活，说出你的想法",
-    "en": "Share what's on your mind — work or life"
+    "zh": "我是 Xfriend 助手，可以帮你处理任务，也可以带你使用专家、团队和双引擎。",
+    "en": "I am Xfriend Assistant. I can help with tasks, experts, teams, and both execution engines."
   },
   "icon_name": "zap",
   "color": "#6366f1",

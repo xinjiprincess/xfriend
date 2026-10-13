@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 from contextlib import suppress
 from typing import Any
-
-from octop.infra.server import OctopServer
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +52,21 @@ async def _serve(server: Any) -> None:
     await server.serve()
 
 
+async def _warmup_after_listen(servers: list[Any], srv: Any, app: Any = None) -> None:
+    """Do not let runtime restoration delay the first accepted HTTP request."""
+    while not all(server.started for server in servers):
+        await asyncio.sleep(0.025)
+    srv.start_background_services()
+    if app is not None:
+        from octop.api.app import complete_deferred_routes
+
+        # Expert restoration takes priority over optional page imports. First-run
+        # setup has no runtime task yet and can complete its routes immediately.
+        if app.state.pending_router_specs and srv._background_startup_task is not None:
+            await asyncio.shield(srv._background_startup_task)
+        await complete_deferred_routes(app)
+
+
 async def run_foreground(
     *,
     host: str | None,
@@ -67,12 +81,14 @@ async def run_foreground(
     import uvicorn
 
     from octop.api.app import build_app
+    from octop.api.listener import ResilientServer
+    from octop.infra.server import OctopServer
     from octop.infra.setup.tls.http_companion import build_http_companion_app
     from octop.infra.setup.tls.listeners import build_listen_plan
     from octop.infra.setup.tls.store import resolve_tls_paths
 
     srv = OctopServer()
-    await srv.start()
+    await srv.start(defer_agents=True)
     bwrap_task = _schedule_linux_bubblewrap_ensure()
     # Greenfield deferral leaves services unset until /setup/database binds.
     cfg = srv.services.config if srv.services is not None else srv.config
@@ -97,7 +113,7 @@ async def run_foreground(
         )
         reload = False
 
-    app = build_app(srv)
+    app = build_app(srv, defer_optional_routes=os.environ.get("XFRIEND_DESKTOP_RUNTIME") == "1")
     servers: list[uvicorn.Server] = []
 
     if plan.dual_listeners:
@@ -122,8 +138,8 @@ async def run_foreground(
             workers=1,
             reload=False,
         )
-        servers.append(uvicorn.Server(https_config))
-        servers.append(uvicorn.Server(http_config))
+        servers.append(ResilientServer(https_config))
+        servers.append(ResilientServer(http_config))
         logger.info(
             "Listening on https://%s:%s and http://%s:%s (ACME + redirect)",
             plan.bind_host,
@@ -142,16 +158,18 @@ async def run_foreground(
             ssl_certfile=plan.ssl_certfile,
             ssl_keyfile=plan.ssl_keyfile,
         )
-        servers.append(uvicorn.Server(single_config))
+        servers.append(ResilientServer(single_config))
 
     from octop.infra.agents.memory.slim_control import MemorySlimControl
 
     memory_control = MemorySlimControl(srv)
+    warmup_task = asyncio.create_task(_warmup_after_listen(servers, srv, app))
     try:
         await memory_control.start()
         await asyncio.gather(*(_serve(s) for s in servers))
     finally:
         await memory_control.close()
+        await _cancel_background_task(warmup_task)
         await _cancel_background_task(bwrap_task)
         await srv.stop()
 

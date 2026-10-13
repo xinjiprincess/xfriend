@@ -883,6 +883,41 @@ def test_stamp_team_host_runtime_forces_async(processor_env: dict) -> None:
     assert "configurable" not in expert_req
 
 
+def test_team_member_models_are_scoped_and_snapshotted(processor_env: dict) -> None:
+    from octop_harness.teams.util import PeerCall
+
+    processor = processor_env["processor"]
+    repo = processor._agent_repo
+    for host, model in [("team-a", "p/a"), ("team-b", "p/b")]:
+        repo.create(
+            agent_id=host,
+            user_id=1,
+            name=host,
+            kind="team",
+            config_json=json.dumps({"team_member_models": {"child": model}}),
+        )
+        processor.teams.stamp_host_runtime({"thread_id": host + "-room"}, host)
+    repo.update_config(
+        "team-a", config_json=json.dumps({"team_member_models": {"child": "p/next"}})
+    )
+
+    def call(host: str) -> PeerCall:
+        return PeerCall(
+            from_agent_id=host,
+            to_agent_id="child",
+            user_id=1,
+            message="task",
+            source_thread_id=host + "-room",
+            source_session_key=None,
+        )
+
+    assert processor.teams._member_runtime(call("team-a"))["model"] == "p/a"
+    assert processor.teams._member_runtime(call("team-b"))["model"] == "p/b"
+    processor.teams.stamp_host_runtime({"thread_id": "team-a-room"}, "team-a")
+    assert processor.teams._member_runtime(call("team-a"))["model"] == "p/next"
+    assert repo.get("child").default_model is None
+
+
 @pytest.mark.asyncio
 async def test_stream_team_peer_relays_tokens_to_room(processor_env: dict) -> None:
     from langchain_core.messages import AIMessage

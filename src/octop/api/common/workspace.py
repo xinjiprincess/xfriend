@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from inspect import iscoroutinefunction
 from typing import TYPE_CHECKING, Any, cast
-
-from octop_harness.backends.workspace import BackendWorkspace
 
 from octop.api.common.agent import require_agent_owner_row, require_agent_row
 from octop.infra.errors import ErrorCode, OctopError
 
 if TYPE_CHECKING:
     from octop_harness import HarnessAgent
+    from octop_harness.backends.workspace import BackendWorkspace
 
 # deepagents.backends.utils.EMPTY_CONTENT_WARNING — shown to LLM tools, not humans.
 _DEEPAGENTS_EMPTY_WARNING = "System reminder: File exists but has empty contents"
@@ -53,6 +53,9 @@ async def require_running_workspace(
     """
     checker = require_agent_owner_row if owner_only else require_agent_row
     row = checker(agent_id, user=user, as_user=as_user, server=server)
+    prepare_runtime = getattr(server.app_runtime.agent_registry, "wait_for_agent_startup", None)
+    if iscoroutinefunction(prepare_runtime):
+        await prepare_runtime(agent_id)
     try:
         return require_running_agent(server, agent_id).workspace
     except OctopError as exc:

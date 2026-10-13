@@ -104,7 +104,7 @@ assemble_one() {
   fi
 
   local components=""
-  if [[ "$plat" == windows-amd64 ]]; then
+  if [[ "$plat" == windows-amd64 || -n "${XFRIEND_COMPONENTS_DIR:-}" ]]; then
     components="${XFRIEND_COMPONENTS_DIR:-${REPO_ROOT}/desktop/portable/components/${plat}}"
     # Validate release inputs before rebuilding or replacing the staging tree.
     uv run --project "$REPO_ROOT" python "${REPO_ROOT}/scripts/desktop_components.py" verify --root "$components"
@@ -243,6 +243,7 @@ assemble_one() {
   cp "${TEMPLATES}/start.sh" "${staging}/start.sh"
   cp "${TEMPLATES}/start.bat" "${staging}/start.bat"
   cp "${TEMPLATES}/launch.py" "${staging}/launch.py"
+  cp "${TEMPLATES}/startup_archive.py" "${staging}/startup_archive.py"
   cp "${TEMPLATES}/README.txt" "${staging}/README.txt"
   chmod +x "${staging}/start.sh"
 
@@ -272,11 +273,23 @@ assemble_one() {
     cp "${components}/components.json" "${staging}/components.json"
   fi
 
-  # Hash-based bytecode stays valid after the desktop extractor changes mtimes.
-  # Precompile on the build host so first launch avoids thousands of cache writes.
+  # Distribute a public server profile or an explicit local-trial policy, never private keys.
+  if [[ -n "${XFRIEND_RELEASE_LICENSE_PROFILE:-}" ]]; then
+    cp "$XFRIEND_RELEASE_LICENSE_PROFILE" "${staging}/packages/octop/infra/licensing/release-profile.json"
+  fi
+
+  # Installed runtime code is immutable; build audited import fixes and bytecode
+  # once, avoiding SDK imports and source-hash reads on every desktop launch.
   if [[ "$plat" == "$host" ]]; then
-    echo "[package] ${plat}: precompiling relocatable Python bytecode"
-    "$install_python" -m compileall -q -j 4 --invalidation-mode checked-hash "${staging}/packages"
+    if [[ "$plat" == windows-* || "$plat" == darwin-* ]]; then
+      "$install_python" "${REPO_ROOT}/scripts/prepare_runtime_imports.py" "${staging}/packages"
+      "$install_python" "${REPO_ROOT}/scripts/build_catalog_index.py" "${staging}"
+      echo "[package] ${plat}: precompiling immutable installed Python bytecode"
+      "$install_python" -m compileall -q -f -j 4 --invalidation-mode unchecked-hash "${staging}/packages"
+      "$install_python" "${REPO_ROOT}/scripts/build_startup_code_archive.py" "${staging}/packages"
+    else
+      "$install_python" -m compileall -q -j 4 --invalidation-mode checked-hash "${staging}/packages"
+    fi
   fi
 
   rm -f "$zip_path"

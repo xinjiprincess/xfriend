@@ -10,8 +10,6 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal
 
-from octop_harness.backends.utils import materialize_storage_path
-
 from octop.infra.agents.builtin_skills import (
     OCTOP_BUILTIN_SKILLS_ROOT,
     is_octop_builtin_skills_path,
@@ -181,6 +179,8 @@ def _local_mount(workspace: BackendWorkspace) -> Path | None:
     the sandbox, and remote backends (COS/S3/…) expose no local mount. Only a
     host-mounted workspace may be read from an explicit local path.
     """
+    from octop_harness.backends.utils import materialize_storage_path
+
     backend = workspace.backend
     if getattr(backend, "sandbox_fs", False):
         return None

@@ -38,6 +38,8 @@ def make_manager(tmp_path):
     registry.memory_slim = MemorySlimCoordinator(registry)
     registry._lock = asyncio.Lock()
     registry._harness_manager = None
+    registry._startup_tasks = {}
+    registry._restore_scheduled = True
     return registry.memory_slim, registry, memory, cfg, cp
 
 

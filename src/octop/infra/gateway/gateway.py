@@ -105,12 +105,13 @@ class Gateway:
         repos: RepoBundle,
         trajectory_service: Any | None = None,
         history_archive: Any | None = None,
+        thread_registry: ThreadRegistry | None = None,
     ) -> None:
         self._agent_manager = agent_manager
         self._repos = repos
         self._trajectory_service = trajectory_service
         self._history_archive = history_archive
-        self._thread_registry = ThreadRegistry(
+        self._thread_registry = thread_registry or ThreadRegistry(
             session_repo=repos.session_repo,
             thread_repo=repos.thread_repo,
         )
@@ -217,7 +218,7 @@ class Gateway:
             "updated_at": status.updated_at,
         }
 
-    async def boot(self) -> None:
+    async def boot(self, *, start_external_channels: bool = True) -> None:
         from octop.infra.gateway.process.channel_thinking import (
             install_channel_thinking_clean,
         )
@@ -259,11 +260,16 @@ class Gateway:
         )
         await self._channel_manager.add_channel(self._cli_channel)
 
+        if start_external_channels:
+            await self.start_external_channels()
+
+        logger.info("Gateway booted")
+
+    async def start_external_channels(self) -> None:
+        """Connect IM only after the registry and account state are assembled."""
         rows = self._repos.channel_repo.list_all(include_disabled=False)
         if rows:
             await asyncio.gather(*(self._safe_register_channel(row) for row in rows))
-
-        logger.info("Gateway booted")
 
     async def refresh_media_backends(self) -> None:
         """Re-set media backends on all registered channels.

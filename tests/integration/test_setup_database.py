@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+import httpx
 import pytest
 
+from octop.api.app import build_app
 from octop.config import DatabaseConfig, OctopConfig, load_config
 from octop.infra.db.factory import open_database
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.repos.users import UserRepo
+from octop.infra.server import OctopServer
 from octop.infra.setup.password_file import read_password
 from octop.infra.utils.paths import PathLayout
-from tests.support.app import octop_client
+from tests.support.app import octop_client, write_octop_config
 from tests.support.auth import bootstrap_admin, wizard_token
 
 
@@ -154,3 +158,39 @@ async def test_setup_database_refused_after_admin(patched_app_client) -> None:
         json={"driver": "sqlite", "sqlite_path": "xfriend.db"},
     )
     assert r.status_code == 410
+
+
+async def test_rebind_during_engine_warmup_preserves_config(
+    tmp_octop_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_octop_config(tmp_octop_home, require_setup_password=False)
+    (tmp_octop_home / "xfriend.db").touch()
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def prepare(server: OctopServer, config: OctopConfig) -> None:
+        entered.set()
+        await release.wait()
+
+    monkeypatch.setattr(OctopServer, "_prepare_runtime", prepare)
+    server = OctopServer(tmp_octop_home)
+    await server.start(defer_agents=True)
+    try:
+        server.start_background_services()
+        await entered.wait()
+        config_path = tmp_octop_home / "config.json"
+        previous_bytes = config_path.read_bytes()
+        previous_services = server.services
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=build_app(server)), base_url="http://testserver"
+        ) as client:
+            response = await client.post(
+                "/api/setup/database",
+                json={"driver": "sqlite", "sqlite_path": "replacement.db"},
+            )
+        assert response.status_code == 503, response.text
+        assert response.json()["error"]["code"] == "SERVICE_STARTING"
+        assert config_path.read_bytes() == previous_bytes
+        assert server.services is previous_services
+        assert not (tmp_octop_home / "replacement.db").exists()
+    finally:
+        await server.stop()

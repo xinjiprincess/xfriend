@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from octop_harness.middleware.model_settings import (
-    CONFIGURABLE_MAX_INPUT_TOKENS,
-    CONFIGURABLE_MODEL_SETTINGS,
-)
+# Stable request wire keys shared with the execution SDK. Keep configuration
+# inspection independent of importing its model implementations.
+CONFIGURABLE_MAX_INPUT_TOKENS = "max_input_tokens"
+CONFIGURABLE_MODEL_SETTINGS = "model_settings"
 
 AGENT_RUNTIME_CONFIG_KEYS = (
     "max_iters",

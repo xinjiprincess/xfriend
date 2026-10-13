@@ -22,7 +22,7 @@ def test_plugin_update_rollback_and_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "unload_plugin", lambda plugin_id: None)
 
     def load(path, **kwargs):
-        manifest = module.PluginManifest.load(path / "plugin.yaml")
+        manifest = module.PluginMetadata.load(path / "plugin.yaml")
         if str(manifest.version) == "bad":
             raise ValueError("invalid entrypoint")
         return SimpleNamespace(manifest=manifest)

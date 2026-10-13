@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import "../pages/Customers/strings";
 import {
   Monitor,
   MessageSquareText,
@@ -15,6 +16,7 @@ import {
   Sparkles,
   Puzzle,
   Package,
+  Smartphone,
   HardDrive,
   GraduationCap,
   Shield,
@@ -49,8 +51,10 @@ export interface NavSection {
 
 /** Every nav item key the sidebar can show. Keep in sync with `SIDEBAR_NAV_KEYS` in `octop.infra.users.preferences`. */
 export const SIDEBAR_NAV_KEYS = [
+  "customers",
   "chat",
   "experts",
+  "engines",
   "tasks",
   "token-usage",
   "personalization",
@@ -58,10 +62,14 @@ export const SIDEBAR_NAV_KEYS = [
   "connectors",
   "skill-packages",
   "knowledge-bases",
+  "transfer",
+  "phone-connection",
   "bridge",
   "workbench",
   "remote-desktop",
   "acp",
+  "assistant-settings",
+  "platform-collaboration",
   "admin-users",
   "models",
   "admin-storage",
@@ -107,6 +115,10 @@ export function navSectionLabel(
  * comes from {@link buildNavSections}.
  */
 export const SIDEBAR_GROUPED_NAV_KEYS = [
+  "phone-connection",
+  "transfer",
+  "assistant-settings",
+  "platform-collaboration",
   "personalization",
   "channels",
   "connectors",
@@ -139,6 +151,12 @@ export function buildNavSections(
     {
       items: [
         {
+          key: "customers",
+          path: "/customers",
+          icon: <UsersIcon size={iconSize} strokeWidth={iconStroke} />,
+          labelKey: "customers:title",
+        },
+        {
           key: "chat",
           path: "/chat",
           icon: <MessageSquareText size={iconSize} strokeWidth={iconStroke} />,
@@ -157,6 +175,12 @@ export function buildNavSections(
           labelKey: "nav.tasks",
         },
         {
+          key: "engines",
+          path: "/engines",
+          icon: <Cpu size={iconSize} strokeWidth={iconStroke} />,
+          labelKey: "engineHub.hubTitle",
+        },
+        {
           key: "token-usage",
           path: "/token-usage",
           icon: <Activity size={iconSize} strokeWidth={iconStroke} />,
@@ -167,6 +191,18 @@ export function buildNavSections(
   ];
 
   const settingsItems: NavItem[] = [
+    {
+      key: "phone-connection",
+      path: "/settings/phone",
+      icon: <Smartphone size={iconSize} strokeWidth={iconStroke} />,
+      labelKey: "phoneConnection.title",
+    },
+    {
+      key: "transfer",
+      path: "/settings/transfer",
+      icon: <Package size={iconSize} strokeWidth={iconStroke} />,
+      labelKey: "portableTransfer.title",
+    },
     {
       key: "personalization",
       path: "/personalization/skills",

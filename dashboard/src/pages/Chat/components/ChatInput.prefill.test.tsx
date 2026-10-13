@@ -126,12 +126,46 @@ vi.mock("../hooks/useSlashMentionInput", () => ({
 }));
 
 import ChatInput, { type ChatInputHandle } from "./ChatInput";
+import { StartupDraftContext } from "../../../context/StartupDraftContext";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("ChatInput prefill clear-on-send", () => {
+  it("adds startup text only on request without overwriting or sending the existing draft", () => {
+    const onSend = vi.fn();
+    const setDraft = vi.fn();
+    render(
+      <StartupDraftContext.Provider
+        value={{
+          draft: "启动时的任务",
+          setDraft,
+          destination: null,
+          setDestination: vi.fn(),
+        }}
+      >
+        <ChatInput
+          onSend={onSend}
+          onCancel={vi.fn()}
+          onNewChat={vi.fn()}
+          isStreaming={false}
+          initialText="已有草稿"
+          agentId="agent-1"
+          threadId="thread-1"
+        />
+      </StartupDraftContext.Provider>,
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("已有草稿");
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "startup.insertDraft" }),
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("已有草稿\n\n启动时的任务");
+    expect(setDraft).toHaveBeenCalledWith("");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it("does not restore stale initialText after send (skill-card prefill path)", async () => {
     // Mirrors welcome skill/quick-card flow:
     // 1) setPrefillText fills the composer imperatively while parent initialText

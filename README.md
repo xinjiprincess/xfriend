@@ -4,9 +4,22 @@ Singu Xfriend 是面向 Windows 桌面的个人 AI 助手与多专家工作台�
 
 ## 当前状态
 
-当前源码版本为 **1.4.0**。已生成 Windows x64 安装包与便携包，并验证随包服务、首次账号设置、声音库及真实双引擎任务。完整回归为 4242 项通过、148 项跳过；详细范围及验证限制见 [开发方案](docs/xfriend-1.2-design.md)。
+当前源码版本为 **1.4.4**，本次 Windows 交付采用**本地五天试用**，重点改造启动加载和安装部署。启动实现、测量数据及尚未达到的性能目标见 [启动验收记录](docs/development/xfriend-1.4.4-startup.md)。详细功能范围见 [开发方案](docs/xfriend-1.2-design.md)。
+
+在线激活代码保留，独立激活后台 0.1.2 位于 `D:\xfriend-activation`，目标为 `43.136.175.19` 上的 `https://www.ciyuancenter.cc/xfriendmanager`。正式在线激活包须先部署后台，并固定从管理端可信导出的验签公钥；目前尚未完成生产部署，不能将源码版本或本机联调成功当作公网激活版已交付。
+
+桌面先显示可输入的中文登录页，没有账号时在认证服务就绪后进入注册向导。运行环境在安装阶段展开，启动集中读取预编译代码，并优先恢复普通专家，随后加载可选功能；DSH 原版工作区保留在客户端内按需打开。再次启动会唤起已有窗口。当前实测仍有超过 16 秒的专家启动样本，不能将窗口出现等同于完整服务秒开。完整优化与 FTP 部署方案见开发方案第 22 节，1.4.1 的交付记录见第 23 节。
 
 1.4 新增统一双引擎专家、顺序团队任务中心、插件升级回退、引擎版本管理及个人声音库。
+
+## 项目文档
+
+- [云端账号、企业授权与 DSH 统一入口方案](docs/development/xfriend-cloud-account-activation-plan.md)：待实施的账号注册登录、Docker 管理站、数据迁移和性能验收设计。
+- [项目设计说明](docs/xfriend-project-design.md)：1.4.4 当前架构、功能边界、数据与升级策略，以及后续工作。
+- [项目开发日志](docs/development/xfriend-project-log.md)：需求演进、设计决策、阶段实现、验收证据和未完成事项。
+- [版本更新记录](CHANGELOG.md)：各版本变更与交付状态。
+- [启动验收记录](docs/development/xfriend-1.4.4-startup.md)：性能定义、实测结果、安装包及限制。
+- [历史改造方案](docs/xfriend-1.2-design.md)：从 1.2 起的原始规划和阶段记录。
 
 ## 已有功能
 
@@ -48,11 +61,23 @@ uv run xfriend run
 
 准备固定版本的 DSH 运行时及浏览器组件，并安装 Go、Wails 3、Git Bash 和 NSIS。构建脚本校验组件清单，输出目录必须是新目录。
 
+本地五天试用包使用 `-LocalTrialDays 5`，与 `-LicenseProfile` 互斥：
+
 ```powershell
-./scripts/build_xfriend_windows.ps1 -DshDirectory <DSH目录> -BrowsersDirectory <浏览器组件目录> -OutputDirectory <新的输出目录>
+./scripts/build_xfriend_windows.ps1 -DshDirectory <DSH目录> -BrowsersDirectory <浏览器组件目录> -LocalTrialDays 5 -OutputDirectory <新的输出目录>
+```
+
+联网激活版从已部署的激活后台导出生产公钥配置，作为 `-LicenseProfile` 参数传入。该配置只包含客户端所需的服务地址和验签公钥，不包含服务端私钥。
+
+本地五天版保留已有服务端授权文件，但不使用其有效期。以后切换联网授权或调整随包试用策略，应发布更高版本的完整客户端；同版本只改授权配置后覆盖安装，可能继续复用旧运行时。
+
+```powershell
+./scripts/build_xfriend_windows.ps1 -DshDirectory <DSH目录> -BrowsersDirectory <浏览器组件目录> -LicenseProfile <生产公钥配置文件> -OutputDirectory <新的输出目录>
 ```
 
 构建产物、运行数据、密钥及本地工具缓存不提交至 Git。安装包与便携包应作为独立下载文件分发。
+
+本地试用状态独立保存于 Windows 用户的本地应用数据及注册表，使用 DPAPI 保护，并检查系统时间回拨。普通覆盖升级、重新安装或更改工作目录不会重置计时；彻底重装系统或主动清除全部试用记录后的同机限制，需要后续服务器授权实现。模型、语音和平台服务仍使用各自的网络配置。
 
 ## 开发检查
 

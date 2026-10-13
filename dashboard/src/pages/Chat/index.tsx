@@ -100,7 +100,8 @@ import {
   hasPendingHitl,
   isResumableHitl,
 } from "./utils/pendingHitl";
-import { isAgentChatReady } from "../../utils/agentError";
+import { isAgentChatReady, isAgentHistoryReady } from "../../utils/agentError";
+import { useRuntimeStartup } from "../../context/RuntimeStartupContext";
 import { useMemoryMaintenance } from "./hooks/useMemoryMaintenance";
 import MemoryMaintenanceBanner from "./components/MemoryMaintenanceBanner";
 import { useHistoryMigration } from "./hooks/useHistoryMigration";
@@ -244,7 +245,13 @@ function ChatPageInner() {
     () => agents.find((a) => a.agent_id === resolvedAgentId) ?? null,
     [agents, resolvedAgentId],
   );
-  const agentChatReady = isAgentChatReady(activeAgent?.state, activeAgent);
+  const { runtimeReady } = useRuntimeStartup();
+  const agentChatReady =
+    runtimeReady && isAgentChatReady(activeAgent?.state, activeAgent);
+  const agentHistoryReady = isAgentHistoryReady(
+    activeAgent?.state,
+    activeAgent,
+  );
   const trajectoryEnabled =
     activeAgent !== null && activeAgent.config?.enable_trajectory !== false;
   const sharedExpertViewer = isSharedExpertViewer(activeAgent ?? {});
@@ -279,7 +286,11 @@ function ChatPageInner() {
   // main panel still renders ``AgentNotReadyScreen`` on the same URL so users
   // see a clear path back to ``/experts`` to re-enable it.
   const sidebarAgents = useMemo(
-    () => selectEnabledExperts(agents, resolvedAgentId, { pinActive: false }),
+    () =>
+      selectEnabledExperts(agents, resolvedAgentId, {
+        pinActive: false,
+        includeStarting: true,
+      }),
     [agents, resolvedAgentId],
   );
 
@@ -403,7 +414,7 @@ function ChatPageInner() {
     retryHistory,
     clearMessages,
     resumeHitl,
-  } = useChat(activeThreadId, resolvedAgentId, isTeamChat);
+  } = useChat(activeThreadId, resolvedAgentId, isTeamChat, agentChatReady);
 
   const hasPendingHitlPause = useMemo(
     () => hasPendingHitl(messages),
@@ -773,6 +784,7 @@ function ChatPageInner() {
       attachments?: ChatAttachment[],
       overrides?: ChatSendOverrides,
     ) => {
+      if (!agentChatReady) return;
       if (interceptUserMessage(text)) {
         // The workflow intercepted the message — don't send it to the agent
         return;
@@ -810,6 +822,7 @@ function ChatPageInner() {
       handleSend(text, attachments, overrides);
     },
     [
+      agentChatReady,
       interceptUserMessage,
       handleSend,
       pendingAsk,
@@ -822,6 +835,7 @@ function ChatPageInner() {
 
   const flushQueuedItem = useCallback(
     (item: QueuedChatItem, ctx: ChatQueueFlushContext): boolean => {
+      if (!runtimeReady) return false;
       if (!ctx.threadId) {
         antMessage.error(t("chat.queue.flushFailed"));
         return false;
@@ -844,12 +858,18 @@ function ChatPageInner() {
       }
       return ok;
     },
-    [handleSend, t],
+    [handleSend, runtimeReady, t],
   );
 
-  const shouldDeferQueueFlush = useCallback((threadId: string) => {
-    return hasPendingHitl(chatStore.getSnapshot(threadId).messages);
-  }, []);
+  const shouldDeferQueueFlush = useCallback(
+    (threadId: string) => {
+      return (
+        !runtimeReady ||
+        hasPendingHitl(chatStore.getSnapshot(threadId).messages)
+      );
+    },
+    [runtimeReady],
+  );
 
   const {
     items: queuedItems,
@@ -931,6 +951,7 @@ function ChatPageInner() {
       decisions: Array<{ type: string; message?: string }>,
       policy?: HitlSessionPolicy,
     ) => {
+      if (!agentChatReady) return;
       if (policy) {
         const next =
           policy.mode === "allow_tools"
@@ -946,11 +967,19 @@ function ChatPageInner() {
       }
       resumeHitl(decisions, activeThreadId ?? undefined);
     },
-    [resumeHitl, activeThreadId, handleHitlPolicyChange, hitlPolicy, messages],
+    [
+      resumeHitl,
+      activeThreadId,
+      handleHitlPolicyChange,
+      hitlPolicy,
+      messages,
+      agentChatReady,
+    ],
   );
 
   const handleComposerHitlPolicyChange = useCallback(
     (policy: HitlSessionPolicy) => {
+      if (!agentChatReady) return;
       const pending = findAutoResumableApproval(policy, messages);
       handleHitlPolicyChange(policy, { persist: !pending });
       if (!pending) return;
@@ -964,11 +993,17 @@ function ChatPageInner() {
         policy,
       );
     },
-    [handleHitlPolicyChange, messages, resumeHitl, activeThreadId],
+    [
+      handleHitlPolicyChange,
+      messages,
+      resumeHitl,
+      activeThreadId,
+      agentChatReady,
+    ],
   );
 
   useEffect(() => {
-    if (isStreaming || !activeThreadId) return;
+    if (!agentChatReady || isStreaming || !activeThreadId) return;
     const sessionPolicy = parseHitlSessionPolicy(composerSession?.hitlPolicy);
     const pending = findAutoResumableApproval(sessionPolicy, messages);
     if (!pending) {
@@ -992,12 +1027,14 @@ function ChatPageInner() {
     activeThreadId,
     resumeHitl,
     isStreaming,
+    agentChatReady,
   ]);
 
   /** Close an ask pause without answering: ``respond`` is the only decision
    *  the agent allows for ``ask_user_question``, so tell it to wrap up. */
   const handleAskDismiss = useCallback(
     (actions: unknown[]) => {
+      if (!agentChatReady) return;
       resumeHitl(
         actions.map(() => ({
           type: "respond",
@@ -1007,7 +1044,7 @@ function ChatPageInner() {
         true,
       );
     },
-    [resumeHitl, activeThreadId, t],
+    [resumeHitl, activeThreadId, agentChatReady, t],
   );
 
   useEffect(() => {
@@ -1055,14 +1092,21 @@ function ChatPageInner() {
   // its content, and re-send — mirrors Claude / ChatGPT "edit message" behaviour.
   const handleEditUserMessage = useCallback(
     (messageId: string, newText: string) => {
-      if (!activeThreadId) return;
+      if (!activeThreadId || !agentChatReady) return;
       if (hasPendingHitlPause) {
         antMessage.warning(t("chat.hitl.finishPendingFirst"));
         return;
       }
       editAndResend(messageId, newText, "", resolvedAgentId ?? "");
     },
-    [activeThreadId, editAndResend, resolvedAgentId, hasPendingHitlPause, t],
+    [
+      activeThreadId,
+      editAndResend,
+      resolvedAgentId,
+      hasPendingHitlPause,
+      agentChatReady,
+      t,
+    ],
   );
 
   const [forking, setForking] = useState(false);
@@ -1423,7 +1467,7 @@ function ChatPageInner() {
               />
             )}
             <div className={styles.chatContent}>
-              {!agentChatReady || noAgents ? (
+              {!agentHistoryReady || noAgents ? (
                 <AgentNotReadyScreen
                   agent={activeAgent}
                   noAgents={noAgents}
@@ -1465,13 +1509,19 @@ function ChatPageInner() {
                     liveSpeakers={liveSpeakers}
                     thinkingStartedAt={thinkingStartedAt}
                     sessionKey={activeThreadId ?? undefined}
-                    onRegenerate={handleRegenerate}
-                    onEditUserMessage={handleEditUserMessage}
+                    onRegenerate={agentChatReady ? handleRegenerate : undefined}
+                    onEditUserMessage={
+                      agentChatReady ? handleEditUserMessage : undefined
+                    }
                     onForkAssistantMessage={handleForkAssistantMessage}
                     forkDisabled={forkDisabled}
                     forkDisabledHint={forkDisabledHint}
-                    onAcpPermissionSelect={handleAcpPermissionSelect}
-                    onHitlDecision={handleHitlDecision}
+                    onAcpPermissionSelect={
+                      agentChatReady ? handleAcpPermissionSelect : undefined
+                    }
+                    onHitlDecision={
+                      agentChatReady ? handleHitlDecision : undefined
+                    }
                     onTurnRailVisibilityChange={setTurnRailVisible}
                     onOpenBrowser={hasBrowserTool ? openBrowserTab : undefined}
                     onEditFile={
@@ -1684,6 +1734,7 @@ function ChatPageInner() {
                   <PlanReadyCard
                     path={pendingPlanPath}
                     onExecute={() => {
+                      if (!agentChatReady) return;
                       const path = pendingPlanPath;
                       if (activeThreadId) {
                         chatStore.setPendingPlanPath(activeThreadId, null);

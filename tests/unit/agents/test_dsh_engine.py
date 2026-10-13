@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 import pytest
 
 from octop.infra.engines.dsh import DSHService, Session
+from octop.infra.engines.mcp import MCPExtension, MCPExtensions
 
 
 class Settings:
@@ -172,3 +174,75 @@ async def test_pinned_runner_survives_default_version_switch(tmp_path: Path) -> 
         assert loaded.engine_identity == session.engine_identity
     finally:
         await restored.shutdown()
+
+
+async def test_mcp_extensions_reach_acp_and_remain_pinned_on_resume(engine, tmp_path):
+    original = MCPExtensions(
+        extensions=[
+            MCPExtension(
+                name="worker",
+                command=sys.executable,
+                args=["tool.py"],
+                env={"TOOL_KEY": "test-value"},
+            ),
+            MCPExtension(
+                name="api",
+                transport="http",
+                url="https://mcp.example.test/api",
+                headers={"Authorization": "Bearer test-value"},
+            ),
+        ]
+    )
+    await engine.extensions(7, original)
+    assert (await engine.extensions(8)).extensions == []
+    session = await engine.create(7, str(tmp_path))
+    assert session.snapshot()["extensions"] == ["worker", "api"]
+    assert "test-value" not in json.dumps(session.snapshot())
+    try:
+        await engine.prompt(session, "first")
+        await settle(session)
+    finally:
+        await engine.shutdown()
+    await engine.extensions(7, MCPExtensions())
+    restored = DSHService(tmp_path, Settings())
+    try:
+        loaded = await restored.get(7, session.id)
+        await restored.prompt(loaded, "second")
+        await settle(loaded)
+        calls_path = (
+            engine.root / "7" / "runtime" / session.engine_identity["signature"] / "mcp-calls.jsonl"
+        )
+        calls = [json.loads(line) for line in calls_path.read_text("utf-8").splitlines()]
+        assert [call["method"] for call in calls] == ["session/new", "session/resume"]
+        assert calls[0]["servers"] == calls[1]["servers"]
+        assert calls[0]["servers"][0]["env"] == [{"name": "TOOL_KEY", "value": "test-value"}]
+        assert calls[0]["servers"][1]["headers"] == [
+            {"name": "Authorization", "value": "Bearer test-value"}
+        ]
+        assert (await restored.create(7, str(tmp_path))).mcp_extensions == []
+    finally:
+        await restored.shutdown()
+
+
+@pytest.mark.parametrize(
+    "extension",
+    [
+        {"name": "missing-command"},
+        {"name": "bad-url", "transport": "http", "url": "file:///private"},
+        {
+            "name": "bad-credentials",
+            "transport": "http",
+            "url": "https://name:password@example.test/mcp",
+        },
+        {
+            "name": "bad-headers",
+            "transport": "http",
+            "url": "https://example.test/mcp",
+            "headers": {"Authorization": "one", "authorization": "two"},
+        },
+        {"name": "bad-env", "command": "worker", "env": {"A=B": "value"}},
+    ],
+)
+def test_mcp_rejects_invalid_declarations(extension):
+    with pytest.raises(ValueError):
+        MCPExtension.model_validate(extension)

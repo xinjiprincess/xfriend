@@ -99,12 +99,8 @@ def assert_control_plane_database_empty(db_config: DatabaseConfig, paths: PathLa
         )
 
 
-def rebind_control_plane(server: OctopServer) -> None:
-    """Close the current pool, open from config, migrate, and retarget runtime repos.
-
-    Only allowed while ``user_count == 0`` (first-run setup). Target DB must also
-    be empty (greenfield); otherwise raise ``DATABASE_NOT_EMPTY`` without swapping.
-    """
+def assert_control_plane_rebind_allowed(server: OctopServer) -> None:
+    """Reject unsafe swaps before callers persist a different database location."""
     if server.user_manager is None or server.services is None:
         raise OctopError(ErrorCode.INTERNAL_ERROR, "server not started")
     if server.user_manager.count() != 0:
@@ -116,10 +112,25 @@ def rebind_control_plane(server: OctopServer) -> None:
 
     from octop.infra.history.service import HistoryArchive
 
-    if isinstance(getattr(server.app_runtime, "history_archive", None), HistoryArchive):
+    if isinstance(server.history_archive, HistoryArchive):
         raise OctopError(
             ErrorCode.SLASH_BAD_ARGS, "Restart to rebind a database with versioned history"
         )
+    if (
+        server._background_startup_task is not None  # noqa: SLF001
+        and not server._background_startup_task.done()  # noqa: SLF001
+    ):
+        raise OctopError.localized(ErrorCode.SERVICE_STARTING, status=503)
+
+
+def rebind_control_plane(server: OctopServer) -> None:
+    """Close the current pool, open from config, migrate, and retarget runtime repos.
+
+    Only allowed while ``user_count == 0`` (first-run setup). Target DB must also
+    be empty (greenfield); otherwise raise ``DATABASE_NOT_EMPTY`` without swapping.
+    """
+    assert_control_plane_rebind_allowed(server)
+    assert server.services is not None and server.user_manager is not None
     config = load_config(server.paths.config)
     old_db = server.services.db
     new_db = open_database(config, server.paths)
@@ -144,7 +155,18 @@ def rebind_control_plane(server: OctopServer) -> None:
         logger.exception("failed closing previous database pool during rebind")
 
     server.services = new_services
+    server.config = config
     if server.app_runtime is not None:
         server.app_runtime.replace_services(new_services, config)
+    else:
+        server.user_manager.replace_services(new_services)
+    if server.thread_registry is not None:
+        server.thread_registry.replace_repos(
+            session_repo=new_services.session_repo, thread_repo=new_services.thread_repo
+        )
+    if server.trajectory_service is not None:
+        from octop.infra.history.trajectory.store import TrajectoryStore
+
+        server.trajectory_service.replace_store(TrajectoryStore(new_services.trajectory_event_repo))
     server._ensure_jwt_secret()  # noqa: SLF001 — re-seed secrets on empty DB
     logger.info("control-plane database rebound to driver=%s", config.database.driver)

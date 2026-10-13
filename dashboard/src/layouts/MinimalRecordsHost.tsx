@@ -41,7 +41,11 @@ export default function MinimalRecordsHost() {
   // they can actually chat with right now. ``/experts`` itself still lists
   // every expert so users can re-enable the stopped one there.
   const enabledAgents = useMemo(
-    () => selectEnabledExperts(agents, resolvedAgentId, { pinActive: false }),
+    () =>
+      selectEnabledExperts(agents, resolvedAgentId, {
+        pinActive: false,
+        includeStarting: true,
+      }),
     [agents, resolvedAgentId],
   );
 

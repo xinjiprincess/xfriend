@@ -19,19 +19,29 @@ func mustEnv(cmd *exec.Cmd, extra map[string]string) {
 }
 
 func startOctop(root string, port int) (*exec.Cmd, error) {
+	return startOctopHome(root, port, octopHome(), nil)
+}
+
+func startOctopHome(root string, port int, home string, extra map[string]string) (*exec.Cmd, error) {
 	py := pythonExe(root)
 	launch := filepath.Join(root, "launch.py")
 	cmd := exec.Command(py, launch, "run", "--host", "127.0.0.1", "--port", strconv.Itoa(port))
 	cmd.Dir = root
-	mustEnv(cmd, map[string]string{
-		"OCTOP_HOME":                   octopHome(),
+	environment := map[string]string{
+		"OCTOP_HOME":                   home,
 		"OCTOP_GREEN_PACKAGES":         filepath.Join(root, "packages"),
 		"OCTOP_REQUIRE_SETUP_PASSWORD": "false",
 		"PYTHONNOUSERSITE":             "1",
 		"PYTHONPATH":                   "",
 		"PYTHONUTF8":                   "1",
 		"PYTHONUNBUFFERED":             "1",
-	})
+		"PYTHONDONTWRITEBYTECODE":      "1",
+		"XFRIEND_DESKTOP_RUNTIME":      "1",
+	}
+	for key, value := range extra {
+		environment[key] = value
+	}
+	mustEnv(cmd, environment)
 	configureProcGroup(cmd)
 	if runtime.GOOS == "windows" {
 		if err := os.MkdirAll(filepath.Dir(serviceLogPath()), 0o700); err != nil {

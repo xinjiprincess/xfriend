@@ -6,7 +6,6 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from octop.infra.agents.manager import AgentCreateSpec
 from octop.infra.errors import ErrorCode, OctopError
 
 if TYPE_CHECKING:
@@ -26,6 +25,8 @@ async def instantiate_expert(
     name: str,
     workspace: str,
 ) -> dict[str, Any]:
+    from octop.infra.agents.manager import AgentCreateSpec
+
     contributions = await asyncio.get_running_loop().run_in_executor(None, plugins.contributions)
     template = next(
         (

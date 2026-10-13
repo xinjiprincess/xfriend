@@ -1,0 +1,89 @@
+name: Xfriend macOS Apple Silicon
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/macos-arm64-1.4.9]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-14
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '26.7.0'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: desktop/src/go.sum
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - name: Prepare build tools and public license profile
+        run: |
+          test "$(uname -m)" = arm64
+          npm install --global pnpm@11.28.5
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.13
+          uv sync --frozen
+          uv run python scripts/prepare_license_profile.py --input desktop/release/cloud-profile.json --verify-server --output .artifacts/macos-public-profile.json
+      - name: Build dashboard for native desktop tests
+        run: |
+          npm --prefix dashboard ci
+          npm --prefix dashboard run build
+          cd desktop/src
+          go run ./cmd/stage-dashboard
+      - name: Check native account storage and desktop source
+        working-directory: desktop/src
+        env:
+          XFRIEND_TEST_KEYCHAIN: '1'
+        run: |
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          keychain="$RUNNER_TEMP/xfriend-test.keychain-db"
+          security create-keychain -p "$password" "$keychain"
+          security default-keychain -s "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 7200 "$keychain"
+          go test . ./internal/mobilebridge ./internal/updates ./cmd/stage-dashboard ./cmd/devserver
+      - uses: actions/checkout@v5
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: d743267388641bc76f17c45ce8b4c231aed1d32c
+          path: .artifacts/dsh-source
+      - name: Build pinned native DSH and original web workspace
+        working-directory: .artifacts/dsh-source
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build --artifacts-only
+          pnpm exec tsx scripts/build-exe-for-python-sdk.ts --skip-build --targets=node24-macos-arm64
+          pnpm --filter @deepseek-ai/dsh-web-app deploy --legacy --prod --config.allow-unused-patches=true --config.node-linker=hoisted --config.auto-install-peers=false --config.link-workspace-packages=true --config.hoist-workspace-packages=false ../dsh-web-closure
+      - name: Stage Mac DSH and export browser
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.artifacts/macos-browsers
+        run: |
+          uv run python scripts/prepare_macos_dsh.py --upstream .artifacts/dsh-source --closure .artifacts/dsh-web-closure --output .artifacts/macos-dsh
+          uv run playwright install --only-shell chromium
+          uv run python scripts/desktop_components.py stage --platform darwin-arm64 --dsh .artifacts/macos-dsh --browsers .artifacts/macos-browsers --output .artifacts/macos-components
+          .artifacts/macos-dsh/node-runtime .artifacts/macos-dsh/node/runtime-bootstrap.mjs --help
+          rm -rf .artifacts/dsh-source .artifacts/dsh-web-closure .artifacts/macos-dsh-base .artifacts/macos-dsh .artifacts/macos-browsers
+      - name: Build complete DMG
+        env:
+          XFRIEND_COMPONENTS_DIR: ${{ github.workspace }}/.artifacts/macos-components
+          XFRIEND_RELEASE_LICENSE_PROFILE: ${{ github.workspace }}/.artifacts/macos-public-profile.json
+          XFRIEND_FRONTEND_READY: '1'
+        run: bash scripts/build_xfriend_macos.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Singu-Xfriend-macos-arm64
+          path: dist/*-macos-arm64/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

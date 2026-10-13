@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 
 from octop.api.common.agent import assert_agent_owner
 from octop.api.deps import current_user, get_server
-from octop.infra.agents.manager import AgentCreateSpec
 from octop.infra.agents.teams import (
     TEAM_KIND,
     TEAM_TEMPLATE_NAME,
@@ -32,6 +31,8 @@ class TeamCreateBody(BaseModel):
     welcome_message: str | None = None
     member_ids: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
+    system_prompt: str | None = Field(default=None, max_length=200000)
+    member_models: dict[str, str] = Field(default_factory=dict)
 
 
 class TeamPatchBody(BaseModel):
@@ -42,6 +43,9 @@ class TeamPatchBody(BaseModel):
     icon_name: str | None = None
     welcome_message: str | None = None
     member_ids: list[str] | None = None
+    system_prompt: str | None = Field(default=None, max_length=200000)
+    member_models: dict[str, str] | None = None
+    revision: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 def _teams(server: Any) -> Any:
@@ -74,7 +78,11 @@ async def create_team(
 ) -> dict[str, Any]:
     teams = _teams(server)
     member_ids = teams.validate_member_ids(user, body.member_ids)
+    if body.default_model:
+        teams.validate_models({"host": body.default_model}, ["host"])
     assert server.app_runtime is not None
+    from octop.infra.agents.manager import AgentCreateSpec
+
     spec = AgentCreateSpec(
         name=body.name.strip(),
         user_id=user.id,
@@ -86,7 +94,11 @@ async def create_team(
         welcome_message=body.welcome_message,
         template_name=TEAM_TEMPLATE_NAME,
         kind=TEAM_KIND,
-        config=body.config,
+        config={
+            **body.config,
+            "team_member_models": teams.validate_models(body.member_models, member_ids),
+        },
+        system_prompt=body.system_prompt,
         member_ids=member_ids,
         mcp_servers=[],
     )
@@ -134,32 +146,16 @@ async def patch_team(
     _require_owned_team(server, user, team_id)
     teams = _teams(server)
     assert server.app_runtime is not None
-    roster_changed = False
-    if body.member_ids is not None:
-        next_ids = teams.validate_member_ids(user, body.member_ids)
-        teams.assert_roster_writable(team_id, next_ids)
-        teams.replace_members(team_id, next_ids)
-        roster_changed = True
-    updates: dict[str, Any] = {}
-    if body.name is not None:
-        updates["name"] = body.name.strip()
-    if body.description is not None:
-        updates["description"] = body.description
-    if body.default_model is not None:
-        updates["default_model"] = body.default_model
-    if body.color is not None:
-        updates["color"] = body.color
-    if body.icon_name is not None:
-        updates["icon_name"] = body.icon_name
-    if body.welcome_message is not None:
-        updates["welcome_message"] = body.welcome_message
-    if updates:
-        await server.app_runtime.agent_registry.update(team_id, **updates)
-    if roster_changed:
-        await server.app_runtime.agent_registry.reload(team_id)
-    row = server.app_runtime.agent_registry.get_row(team_id)
-    if row is None:
-        raise OctopError(ErrorCode.TEAM_NOT_FOUND, f"team {team_id!r} not found")
+    updates = body.model_dump(exclude_unset=True, exclude={"revision"})
+    if "name" in updates and updates["name"] is not None:
+        updates["name"] = updates["name"].strip()
+    if updates.get("member_ids", []) is None:
+        updates.pop("member_ids")
+    if updates.get("member_models", {}) is None:
+        updates.pop("member_models")
+    row = await teams.update_configuration(
+        server.app_runtime.agent_registry, user, team_id, updates, body.revision
+    )
     return cast(dict[str, Any], teams.team_payload(row))
 
 

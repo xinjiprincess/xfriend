@@ -1,6 +1,9 @@
+[CmdletBinding(DefaultParameterSetName = 'ServerLicense')]
 param(
     [Parameter(Mandatory = $true)][string]$DshDirectory,
     [Parameter(Mandatory = $true)][string]$BrowsersDirectory,
+    [Parameter(Mandatory = $true, ParameterSetName = 'ServerLicense')][string]$LicenseProfile,
+    [Parameter(Mandatory = $true, ParameterSetName = 'LocalTrial')][ValidateRange(1, 365)][int]$LocalTrialDays,
     [Parameter(Mandatory = $true)][string]$OutputDirectory
 )
 
@@ -11,6 +14,10 @@ if (Test-Path -LiteralPath $output) { throw 'Choose a new output directory to pr
 foreach ($program in @('uv', 'bash', 'npm', 'go', 'wails3', 'makensis')) {
     if (-not (Get-Command $program -ErrorAction SilentlyContinue)) { throw "Required build tool is missing: $program" }
 }
+$nsisVersionText = (& makensis -VERSION | Out-String).Trim()
+if ($nsisVersionText -notmatch '^v(\d+\.\d+)' -or [version]$Matches[1] -lt [version]'3.05') {
+    throw "NSIS 3.05 or newer is required for long-path support; found $nsisVersionText"
+}
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code $LASTEXITCODE" }
@@ -20,6 +27,13 @@ try {
     $versionLine = Get-Content -LiteralPath 'pyproject.toml' | Where-Object { $_ -match '^version\s*=\s*"([^"]+)"' } | Select-Object -First 1
     if ($versionLine -notmatch '^version\s*=\s*"([^"]+)"') { throw 'Missing application version' }
     $version = $Matches[1]
+    $publicProfile = Join-Path $repository ('.artifacts/license-profile-{0}.json' -f [Guid]::NewGuid().ToString('N'))
+    if ($PSCmdlet.ParameterSetName -eq 'LocalTrial') {
+        Invoke-Checked 'uv' @('run', 'python', 'scripts/prepare_license_profile.py', '--local-trial-days', [string]$LocalTrialDays, '--output', $publicProfile)
+    } else {
+        Invoke-Checked 'uv' @('run', 'python', 'scripts/prepare_license_profile.py', '--input', ([IO.Path]::GetFullPath($LicenseProfile)), '--verify-server', '--output', $publicProfile)
+    }
+    $env:XFRIEND_RELEASE_LICENSE_PROFILE = $publicProfile.Replace('\', '/')
     $components = Join-Path $repository ('.artifacts/components/{0}/windows-amd64-{1}' -f $version, [Guid]::NewGuid().ToString('N'))
     Invoke-Checked 'uv' @('run', 'python', 'scripts/desktop_components.py', 'stage', '--dsh', ([IO.Path]::GetFullPath($DshDirectory)), '--browsers', ([IO.Path]::GetFullPath($BrowsersDirectory)), '--output', $components)
     $env:XFRIEND_COMPONENTS_DIR = $components.Replace('\', '/')

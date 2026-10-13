@@ -162,6 +162,7 @@
         mic = document.querySelector("#mic"),
         word = document.querySelector("#word");
       let serviceVoice = false;
+      let sessionToken = "";
       let base = "",
         expanded = false,
         listening = false;
@@ -242,12 +243,14 @@
         }
       }
       window.addEventListener("assistant:voice", voice);
-      window.addEventListener("assistant:session", (e) => {
+      function forwardSession() {
         if (base)
-          frame.contentWindow.postMessage(
-            { type: "xfriend:session", token: e.detail },
-            base,
-          );
+          frame.contentWindow.postMessage({ type: "xfriend:session", token: sessionToken }, base);
+      }
+      frame.addEventListener("load", forwardSession);
+      window.addEventListener("assistant:session", (e) => {
+        sessionToken = typeof e.detail === "string" ? e.detail : "";
+        forwardSession();
       });
       window.addEventListener("assistant:base", (e) => setBase(e.detail));
       window.addEventListener("message", (e) => {

@@ -1,0 +1,32 @@
+.customer-sync-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(0, 3fr);
+  gap: 20px;
+}
+.customer-sync-grid > * {
+  min-width: 0;
+}
+.customer-sync-text,
+.customer-sync-grid pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 480px;
+  overflow: auto;
+}
+.customer-sync-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 16px 0;
+}
+.customer-sync-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+@media (max-width: 760px) {
+  .customer-sync-grid,
+  .customer-sync-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

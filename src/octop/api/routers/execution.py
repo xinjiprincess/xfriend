@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from octop.api.common.documents import DocumentPreview, DocumentSelection
 from octop.api.deps import current_user, get_server
 from octop.infra.agents.plugins.contributions import instantiate_expert
-from octop.infra.engines.execution import ExecutionService
+from octop.infra.engines.execution import ExecutionService, list_expert_bindings
 from octop.infra.history.documents import history_digest, render_document, select_messages
 from octop.infra.server import OctopServer
 from octop.infra.users.identity import User
@@ -99,12 +99,30 @@ class TaskCreate(BaseModel):
     text: str = Field(min_length=1, max_length=16000)
 
 
+class DualTaskCreate(BaseModel):
+    native_experts: list[str] = Field(
+        min_length=1, max_length=3, description="Ordered native expert group"
+    )
+    dsh_experts: list[str] = Field(
+        min_length=1, max_length=3, description="Ordered DSH expert group"
+    )
+    workspace: str = Field(
+        min_length=1, max_length=4096, description="Existing absolute local DSH workspace"
+    )
+    summary_expert: str = Field(
+        min_length=1, description="Expert responsible for synthesizing all group outputs"
+    )
+    summary_engine: Literal["native", "dsh"] = "native"
+    text: str = Field(min_length=1, max_length=16000)
+
+
 class TaskStep(ExpertBinding):
     expert_id: str
     name: str
     session_id: str
     engine_session_id: str | None = None
     engine_version: str | None = None
+    phase: Literal["work", "summary"] = "work"
 
 
 class TaskSummary(BaseModel):
@@ -115,6 +133,7 @@ class TaskSummary(BaseModel):
     steps: list[TaskStep]
     step: int
     error: str | None = None
+    mode: Literal["sequential", "dual"] = "sequential"
 
 
 class ExecutionEvent(BaseModel):
@@ -196,9 +215,10 @@ async def followup(
     summary="List experts and your engine bindings",
 )
 async def experts(
-    user: User = Depends(current_user), execution: ExecutionService = Depends(service)
+    user: User = Depends(current_user), server: OctopServer = Depends(get_server)
 ) -> Any:
-    return await execution.experts(user)
+    assert server.services is not None
+    return await list_expert_bindings(server.services.repos, user)
 
 
 @router.put(
@@ -236,6 +256,29 @@ async def tasks(
     user: User = Depends(current_user), execution: ExecutionService = Depends(service)
 ) -> Any:
     return await execution.list_tasks(user.id)
+
+
+@router.post(
+    "/dual-tasks",
+    response_model=TaskView,
+    status_code=201,
+    summary="Run both engine expert groups and synthesize a final answer",
+    description="Administrator only. Runs native experts, then DSH experts, then the selected final expert. Each step receives preceding contributions; bindings are task-local. No automatic replay or parallel execution.",
+)
+async def create_dual(
+    body: DualTaskCreate,
+    user: User = Depends(current_user),
+    execution: ExecutionService = Depends(service),
+) -> Any:
+    return await execution.create_dual(
+        user,
+        body.native_experts,
+        body.dsh_experts,
+        body.workspace,
+        body.summary_expert,
+        body.summary_engine,
+        body.text,
+    )
 
 
 @router.get(

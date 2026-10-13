@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/url"
 	"os"
@@ -25,19 +26,25 @@ const trayDoubleClick = 400 * time.Millisecond
 
 // App is the Wails service bound to the shell UI.
 type App struct {
-	app             *application.App
-	window          *application.WebviewWindow
-	settingsWindow  *application.WebviewWindow
-	assistantWindow *application.WebviewWindow
-	voiceMu         sync.Mutex
-	voiceCmd        *exec.Cmd
-	assistantBase   string
-	store           *settingsStore
-	sleep           *sleepGuard
-	cmd             *exec.Cmd
-	mu              sync.Mutex
-	quitting        bool
-	startupErr      error
+	app              *application.App
+	window           *application.WebviewWindow
+	settingsWindow   *application.WebviewWindow
+	assistantWindow  *application.WebviewWindow
+	settingsOnce     sync.Once
+	assistantOnce    sync.Once
+	tray             *application.SystemTray
+	voiceMu          sync.Mutex
+	voiceCmd         *exec.Cmd
+	assistantBase    string
+	assistantSession string
+	store            *settingsStore
+	sleep            *sleepGuard
+	cmd              *exec.Cmd
+	cmdDone          <-chan struct{}
+	mu               sync.Mutex
+	quitting         bool
+	startupErr       error
+	desktop          *desktopServer
 
 	trayClickMu    sync.Mutex
 	lastTrayClick  time.Time
@@ -52,10 +59,23 @@ func (a *App) ServiceShutdown() error {
 	a.StopAssistantVoice()
 	a.sleep.stop()
 	a.mu.Lock()
+	a.quitting = true
 	cmd := a.cmd
+	done := a.cmdDone
 	a.cmd = nil
 	a.mu.Unlock()
 	stopOctop(cmd)
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			if cmd != nil && cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			<-done
+		}
+	}
+	a.desktop.close()
 	return nil
 }
 
@@ -110,10 +130,9 @@ func (a *App) ShowMain() {
 }
 
 func (a *App) HideSettings() {
-	if a.settingsWindow == nil {
-		return
+	if window := a.settingsWindowRef(); window != nil {
+		window.Hide()
 	}
-	a.settingsWindow.Hide()
 }
 
 func (a *App) Quit() {
@@ -182,50 +201,100 @@ func (a *App) boot() {
 		a.showDashboard(url)
 		return
 	}
-	s := a.store.get()
 	a.setStatus(desktopText(locale, copyStatusCheckingRuntime))
-	if err := ensurePortable(locale, a.setStatus); err != nil {
+	fail := func(phase string, err error) {
 		a.setStatus(err.Error())
+		a.desktop.update("failed", phase, err.Error())
+	}
+	if err := ensurePortableWithDashboard(locale, func(message string) {
+		a.setStatus(message)
+		a.desktop.update("starting", "preparing_runtime", message)
+	}, a.desktop); err != nil {
+		fail("preparing_runtime", err)
 		return
 	}
 	root := portableDir()
-	port, err := availableLocalPort(s.Port)
-	if err != nil {
-		a.setStatus(err.Error())
+	if err := a.desktop.verifyRuntime(root); err != nil {
+		fail("runtime_version", err)
 		return
 	}
-	if port != s.Port {
-		s.Port = port
-		if err := a.store.save(s); err != nil {
-			a.setStatus(err.Error())
-			return
-		}
+	if a.desktop.cloud != nil {
+		a.bootCloud(root, locale)
+		return
 	}
+	port, err := availableLocalPort(0)
+	if err != nil {
+		fail("starting_service", err)
+		return
+	}
+	base := dashboardURL(port)
+	if err := a.desktop.setBackend(base); err != nil {
+		fail("starting_service", err)
+		return
+	}
+	a.desktop.update("starting", "starting_service", desktopText(locale, copyStatusStartingService))
+	processExited := make(chan struct{})
 	a.mu.Lock()
+	if a.quitting {
+		a.mu.Unlock()
+		return
+	}
 	stopOctop(a.cmd)
-	cmd, err := startOctop(root, s.Port)
+	cmd, err := startOctop(root, port)
 	a.cmd = cmd
+	if err == nil {
+		a.cmdDone = processExited
+	}
 	a.mu.Unlock()
 	if err != nil {
-		a.setStatus(err.Error())
+		fail("starting_service", err)
 		return
 	}
-	base := dashboardURL(s.Port)
-	var processDone <-chan error
+	processDone := make(chan error, 1)
 	logPath := ""
 	if runtime.GOOS == "windows" {
-		done := make(chan error, 1)
-		go func() { done <- cmd.Wait() }()
-		processDone = done
 		logPath = serviceLogPath()
 	}
+	go func() {
+		defer close(processExited)
+		err := cmd.Wait()
+		processDone <- err
+		a.mu.Lock()
+		quitting := a.quitting
+		a.mu.Unlock()
+		if !quitting {
+			if err == nil {
+				err = fmt.Errorf("exit code 0")
+			}
+			fail("service_exited", withServiceLog(locale, fmt.Errorf("%s", desktopText(locale, copyServiceExited, err)), logPath))
+		}
+	}()
 	a.setStatus(desktopText(locale, copyStatusStartingService))
 	if err := waitHealthForProcess(locale, base, 5*time.Minute, processDone, logPath); err != nil {
-		a.setStatus(err.Error())
+		fail("starting_service", err)
 		return
 	}
-	_ = os.RemoveAll(root + ".previous")
-	a.showDashboard(base)
+	a.desktop.mu.Lock()
+	if a.desktop.status.State == "failed" {
+		a.desktop.mu.Unlock()
+		return
+	}
+	a.desktop.status.State, a.desktop.status.Phase, a.desktop.status.Message = "ready", "core_ready", ""
+	a.desktop.mu.Unlock()
+	if root == filepath.Join(octopHome(), "portable") {
+		_ = os.RemoveAll(root + ".previous")
+	} else {
+		if err := os.WriteFile(installedRuntimeVersionPath(), []byte(portableVersion(root)), 0600); err != nil {
+			log.Printf("record installed runtime version: %v", err)
+		}
+	}
+	a.showDashboard(a.desktop.base)
+	monitorCtx, cancelMonitor := context.WithCancel(context.Background())
+	go func() {
+		<-processExited
+		cancelMonitor()
+	}()
+	go a.desktop.monitorBackend(monitorCtx, base, 2*time.Second)
 }
 
 func (a *App) showDashboard(base string) {
@@ -238,13 +307,19 @@ func (a *App) showDashboard(base string) {
 		target.RawQuery = query.Encode()
 		base = target.String()
 	}
-	a.window.SetURL(base)
+	// The local SPA is already interactive while Python starts; do not reload it
+	// when the health check completes (that would discard unsent input).
+	if a.desktop == nil {
+		a.window.SetURL(base)
+	}
 	a.mu.Lock()
 	a.assistantBase = base
 	a.mu.Unlock()
-	if a.assistantWindow != nil {
-		a.assistantWindow.ExecJS("window.dispatchEvent(new CustomEvent('assistant:base',{detail:" + jsonString(base) + "}));")
-		a.assistantWindow.Show()
+	if window := a.assistantWindowRef(); window != nil {
+		window.ExecJS("window.dispatchEvent(new CustomEvent('assistant:base',{detail:" + jsonString(base) + "}));")
+	}
+	if a.store.get().AssistantVisible {
+		a.ShowAssistant()
 	}
 	a.scheduleDragOverlay()
 	s := a.store.get()
@@ -333,21 +408,26 @@ func (a *App) requestQuit() {
 }
 
 func main() {
-	startupErr := migrateDesktopHome()
-	profilePath := filepath.Join(octopHome(), "webview2")
-	if startupErr != nil {
-		profilePath = filepath.Join(os.TempDir(), "xfriend-migration-error-webview")
+	instanceID, err := desktopInstanceID(octopHome())
+	if err != nil {
+		log.Fatal(err)
 	}
-	store := &settingsStore{cur: loadSettings()}
+	profilePath := filepath.Join(octopHome(), "webview2")
+	store := &settingsStore{}
 	api := &App{
-		store:      store,
-		startupErr: startupErr,
-		sleep:      &sleepGuard{},
+		store: store,
+		sleep: &sleepGuard{},
 	}
 
 	app := application.New(application.Options{
 		Name:        "Singu Xfriend",
 		Description: "Singu Xfriend desktop",
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: instanceID,
+			// This IPC is deliberately limited to showing the existing window.
+			// Never execute arguments or open URLs supplied by another process.
+			OnSecondInstanceLaunch: func(_ application.SecondInstanceData) { api.showWindow() },
+		},
 		Services: []application.Service{
 			application.NewService(api),
 		},
@@ -367,6 +447,50 @@ func main() {
 		},
 	})
 	api.app = app
+	// Wails acquires the single-instance lock inside New, before any migration,
+	// settings write, WebView profile creation or Python process can take place.
+	dataLock, startupErr := lockDesktopData(instanceID)
+	if startupErr == nil {
+		defer dataLock.Close()
+		startupErr = migrateDesktopHome()
+	}
+	if startupErr != nil {
+		app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
+			app.Dialog.Error().SetTitle("Singu Xfriend 启动失败").SetMessage(startupErr.Error()).Show()
+			app.Quit()
+		})
+		if runErr := app.Run(); runErr != nil {
+			log.Print(runErr)
+		}
+		return
+	}
+	store.cur = loadSettings()
+	windowURL := "/login"
+	if os.Getenv("OCTOP_DESKTOP_URL") == "" {
+		files, assetsErr := fs.Sub(dashboardAssets, "ui")
+		if assetsErr == nil {
+			api.desktop, assetsErr = newDesktopServer(files)
+		}
+		if assetsErr == nil {
+			assetsErr = api.desktop.configureCloud()
+		}
+		if assetsErr == nil {
+			assetsErr = api.desktop.listen(store.get().Port)
+		}
+		api.startupErr = assetsErr
+		if assetsErr == nil {
+			windowURL = api.desktop.base + "login?desktopLocale=" + url.QueryEscape(string(store.get().Locale))
+			if api.desktop.cloud != nil {
+				state := api.desktop.cloud.status().State
+				initial := "login"
+				if state == "authenticated" || state == "restoring" {
+					initial = "chat"
+				}
+				windowURL = api.desktop.base + initial + "?desktopLocale=" + url.QueryEscape(string(store.get().Locale))
+			}
+			api.assistantBase = api.desktop.base
+		}
+	}
 	attachOpenURLEventListener(app, api.OpenExternal)
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
 		applyAppIcon(app)
@@ -376,7 +500,7 @@ func main() {
 		Title:                "Singu Xfriend",
 		Width:                1200,
 		Height:               800,
-		URL:                  "/",
+		URL:                  windowURL,
 		Frameless:            true,
 		AllowSimpleEventEmit: true,
 		BackgroundColour:     application.NewRGB(247, 248, 250),
@@ -396,32 +520,17 @@ func main() {
 		api.scheduleDragOverlay()
 		// Navigate only after the main WebView controller has initialized.
 		bootOnce.Do(func() { go api.boot() })
-		if win.IsVisible() && (api.settingsWindow == nil || !api.settingsWindow.IsVisible()) {
+		settings := api.settingsWindowRef()
+		if win.IsVisible() && (settings == nil || !settings.IsVisible()) {
 			win.Focus()
 		}
 	}
 	win.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, installDragOverlay)
 	win.OnWindowEvent(events.Windows.WebViewNavigationCompleted, installDragOverlay)
 	win.OnWindowEvent(events.Linux.WindowLoadFinished, installDragOverlay)
-	settingsWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Singu Xfriend 设置",
-		Width:            settingsWindowWidth,
-		Height:           settingsWindowOuterHeight(),
-		URL:              "/?settings=1",
-		Hidden:           true,
-		Frameless:        true,
-		AlwaysOnTop:      true,
-		DisableResize:    true,
-		BackgroundColour: application.NewRGB(255, 255, 255),
-		Windows: application.WindowsWindow{
-			HiddenOnTaskbar: true,
-		},
-	})
-	api.settingsWindow = settingsWin
-	api.createAssistantWindow()
 	app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(event *application.ApplicationEvent) {
 		event.Cancel()
-		restoreMainAfterDockClick(api.window, api.settingsWindow)
+		restoreMainAfterDockClick(api.window, api.settingsWindowRef())
 	})
 
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
@@ -439,19 +548,11 @@ func main() {
 			api.hideToTray()
 		}
 	})
-	settingsWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		e.Cancel()
-		settingsWin.Hide()
-	})
-	settingsWin.OnWindowEvent(events.Common.WindowLostFocus, func(_ *application.WindowEvent) {
-		settingsWin.Hide()
-	})
-
 	tray := app.SystemTray.New()
+	api.tray = tray
 	applyTrayIcon(tray)
 	tray.SetTooltip("Singu Xfriend")
-	tray.AttachWindow(settingsWin).WindowOffset(6)
-	showSettings := func() { tray.ShowWindow() }
+	showSettings := func() { api.ShowSettings() }
 	if trayLeftClickShowsSettings(runtime.GOOS) {
 		tray.OnClick(showSettings)
 	} else {

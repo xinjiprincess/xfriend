@@ -69,6 +69,18 @@ export function isAgentChatReady(
   return state === "running";
 }
 
+/** Archived conversations remain readable while an enabled expert restores. */
+export function isAgentHistoryReady(
+  state: string | null | undefined,
+  agent?: {
+    startup_pending?: boolean;
+    bridge?: boolean;
+    bridge_disconnected?: boolean;
+  } | null,
+): boolean {
+  return isAgentChatReady(state, agent) || Boolean(agent?.startup_pending);
+}
+
 /** Agent exists but harness runtime is not loaded (user stopped or never started). */
 export function isAgentStopped(state: string | null | undefined): boolean {
   return state === "stopped" || state === "created";

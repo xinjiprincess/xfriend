@@ -35,6 +35,14 @@ async def test_notifications_ws_ping_pong(env: Any) -> None:
         assert await ws.receive_json() == {"type": "pong"}
 
 
+@pytest.mark.parametrize("query", ["", "?token=desktop-cloud"])
+async def test_notifications_ws_desktop_header_auth(env: Any, query: str) -> None:
+    c, _srv, alice_auth, _bob_auth = env
+    async with ws_connect(c._octop_app, f"/api/notifications/ws{query}", headers=alice_auth) as ws:
+        await ws.send_json({"type": "ping"})
+        assert await ws.receive_json() == {"type": "pong"}
+
+
 async def test_notifications_ws_missing_token_rejected(env: Any) -> None:
     c, _srv, _alice_auth, _bob_auth = env
     with pytest.raises(WebSocketDisconnect):

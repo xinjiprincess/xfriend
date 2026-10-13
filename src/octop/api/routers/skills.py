@@ -46,10 +46,10 @@ from pydantic import BaseModel
 
 from octop.api.common.agent import require_agent_owner_row, require_agent_row
 from octop.api.deps import current_user, get_server, require_permission
-from octop.infra.agents.manager import (
+from octop.infra.agents.settings.profile import (
     skill_package_ids_list,
 )
-from octop.infra.agents.manager import (
+from octop.infra.agents.settings.profile import (
     skills_disabled_set as _disabled_set,
 )
 from octop.infra.errors import ErrorCode, OctopError

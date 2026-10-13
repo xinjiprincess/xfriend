@@ -228,4 +228,4 @@ def test_safe_header_always_plain_str(field: str) -> None:
     raw = "From: 张三 <a@b.com>\r\nSubject: 测试\r\nDate: Wed, 30 Sep 2026 10:00:00\r\n".encode()
     msg = qq_mail._parse_message(raw)
     value = qq_mail._safe_header(msg, field)
-    assert type(value) is str
+    assert isinstance(value, str)

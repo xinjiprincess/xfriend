@@ -7,8 +7,20 @@ import base64
 import json
 from typing import Any
 
+from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.history.legacy import checkpoint_snapshot, checkpoint_wires
 from octop.infra.history.service import HistoryArchive
+
+
+def _legacy_agent(registry: Any, agent_id: str) -> Any:
+    pending = getattr(registry, "agent_startup_pending", None)
+    if registry is None or (callable(pending) and pending(agent_id) is True):
+        raise OctopError(
+            ErrorCode.SERVICE_STARTING,
+            "Legacy checkpoint history requires the execution runtime",
+            status=503,
+        )
+    return registry.get_agent(agent_id)
 
 
 async def read_page(
@@ -22,7 +34,7 @@ async def read_page(
     cursor: str | None = None,
 ) -> dict[str, Any]:
     async def legacy(anchor: dict[str, Any]) -> list[Any]:
-        return await checkpoint_wires(registry.get_agent(agent_id), thread_id, anchor)
+        return await checkpoint_wires(_legacy_agent(registry, agent_id), thread_id, anchor)
 
     boundary = None
     if cursor and cursor.startswith("legacy:"):
@@ -78,7 +90,9 @@ async def read_page(
                     }
                 }
             }
-        raw, config = await checkpoint_snapshot(registry.get_agent(agent_id), thread_id, anchor)
+        raw, config = await checkpoint_snapshot(
+            _legacy_agent(registry, agent_id), thread_id, anchor
+        )
         stop = min(len(raw), boundary["before"]) if boundary else max(0, len(raw) - offset)
         start = max(0, stop - limit)
         wires, has_more, before = raw[start:stop], start > 0, start

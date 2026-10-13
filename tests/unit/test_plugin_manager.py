@@ -7,6 +7,7 @@ import json
 import sys
 import zipfile
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -49,6 +50,34 @@ def test_install_and_list(tmp_path: Path) -> None:
     assert loaded.manifest.id == "echo-tool"
     items = mgr.list_installed()
     assert any(i.get("id") == "echo-tool" for i in items)
+
+
+def test_metadata_listing_does_not_wait_for_partially_imported_sdk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    directory = tmp_path / "plugins"
+    shutil.copytree(_FIXTURE, directory / "echo-tool")
+    manager = PluginManager(plugins_dir=directory, config_path=tmp_path / "config.json")
+    monkeypatch.setitem(sys.modules, "octop_harness.plugins", ModuleType("octop_harness.plugins"))
+    item = manager.list_installed()[0]
+    assert item["id"] == "echo-tool"
+    assert item["loaded"] is False
+    assert item["tools"] == []
+
+
+def test_reload_refuses_busy_agents_before_touching_registry(tmp_path: Path) -> None:
+    def busy() -> None:
+        raise OctopError.localized(ErrorCode.AGENT_BUSY)
+
+    manager = PluginManager(plugins_dir=tmp_path / "plugins", config_path=tmp_path / "config.json")
+    loaded = manager.install_path(_FIXTURE)
+    manager._assert_idle = busy
+    with pytest.raises(OctopError) as raised:
+        manager.reload_installed(install_deps=False)
+    assert raised.value.code == ErrorCode.AGENT_BUSY
+    assert PluginRegistry().get(loaded.manifest.id) is loaded
 
 
 def test_global_disable(tmp_path: Path) -> None:

@@ -712,6 +712,83 @@ def test_build_harness_config_defaults_local_shell_backend(manager: AgentManager
     assert cfg.permissions is not None
 
 
+def test_default_assistant_uses_identity_without_onboarding_questionnaire(
+    manager: AgentManager,
+) -> None:
+    from dataclasses import replace
+
+    row = replace(
+        _row(agent_id="ASSISTANT"),
+        template_name="general-assistant",
+        system_prompt="Keep my personal writing style.",
+    )
+    cfg = manager._build_harness_config(row)
+    assert cfg.bootstrap_enabled is False
+    assert cfg.memory != ()
+    assert cfg.system_prompt == row.system_prompt
+
+
+def test_default_assistant_name_upgrade_preserves_custom_names_and_avoids_collisions(
+    manager: AgentManager,
+) -> None:
+    repo = manager._repos.agent_repo
+    for agent_id, name, template_name in (
+        ("existing", "Xfriend 助手", "general-assistant"),
+        ("legacy", "小通 · 通用助手", "general-assistant"),
+        ("custom", "我的工作搭档", "general-assistant"),
+        ("other", "Octop Assistant", "office-automation"),
+    ):
+        repo.create(agent_id=agent_id, user_id=None, name=name, template_name=template_name)
+    manager._upgrade_default_assistant_names()
+    assert repo.get("legacy").name == "Xfriend 助手 · legacy"
+    assert repo.get("custom").name == "我的工作搭档"
+    assert repo.get("other").name == "Octop Assistant"
+    manager._upgrade_default_assistant_names()
+    assert repo.get("legacy").name == "Xfriend 助手 · legacy"
+
+
+async def test_assistant_help_upgrade_preserves_disabled_choice(
+    manager: AgentManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from octop_harness import HarnessAgentManager
+
+    from octop.infra.agents.experts import assistant_upgrade
+
+    _seed_test_provider(manager)
+    manager._harness_manager = HarnessAgentManager(
+        providers=manager.providers.build_harness_configs(),
+        log_dir=str(manager.paths.logs_dir),
+    )
+    manager._repos.agent_repo.create(
+        agent_id="OLDHELP",
+        user_id=None,
+        name="Xfriend 助手",
+        template_name="general-assistant",
+        config_json=json.dumps({**_MEMORY_OFF, "skills_disabled": ["octop-assistant"]}),
+    )
+    row = manager.get_row("OLDHELP")
+    assert row is not None
+    raw = b"# Factory assistant help\n"
+    _, current = assistant_upgrade._bundled_files()
+    hashes = {
+        "skill": {assistant_upgrade.content_digest(raw, "skill")},
+        "soul": set(),
+        "manifest": set(),
+    }
+    monkeypatch.setattr(assistant_upgrade, "_bundled_files", lambda: (hashes, current))
+    ws = manager._backend_workspace_for_row(row)
+    await ws.aupload_bytes("skills/octop-assistant/SKILL.md", raw)
+    try:
+        agent = await manager._start_agent(row)
+        assert agent is not None
+        assert "xfriend-assistant" in agent.config.skills_disabled
+        assert "xfriend-assistant" in manager.get_config("OLDHELP")["skills_disabled"]
+        await manager.persist_skills_disabled("OLDHELP", {"octop-assistant"})
+        assert "xfriend-assistant" not in agent.config.skills_disabled
+    finally:
+        await manager.shutdown()
+
+
 @pytest.mark.asyncio
 async def test_boot_passes_process_log_dir_to_harness_manager(manager: AgentManager) -> None:
     await manager.boot()

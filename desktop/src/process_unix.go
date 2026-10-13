@@ -13,5 +13,5 @@ func configureProcGroup(cmd *exec.Cmd) {
 
 func killProcessTree(cmd *exec.Cmd) {
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-	_ = cmd.Wait()
+	// The boot goroutine owns Wait, including unexpected service exits.
 }

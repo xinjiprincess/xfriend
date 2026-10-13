@@ -13,6 +13,8 @@ from fastapi.responses import Response
 from octop.api.common.agent import require_agent_row
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
 from octop.api.common.documents import DocumentPreview, DocumentSelection
+from octop.api.common.history import agent_registry, history_archive
+from octop.api.common.history import thread_registry as core_threads
 from octop.api.deps import current_user, get_server
 from octop.api.routers.chat.models import ForkThreadBody, RebindSessionBody, RenameThreadBody
 from octop.api.routers.chat.serialize import (
@@ -46,11 +48,11 @@ logger = logging.getLogger(__name__)
 async def _document_messages(server: Any, agent_id: str, thread_id: str) -> list[Any]:
     from octop.infra.history.reader import export_messages
 
-    archive = getattr(server.app_runtime, "history_archive", None)
+    archive = history_archive(server)
     if not isinstance(archive, HistoryArchive):
         raise OctopError(ErrorCode.NOT_FOUND, "History archive is unavailable")
     return normalize_messages(
-        await export_messages(archive, server.app_runtime.agent_registry, agent_id, thread_id)
+        await export_messages(archive, agent_registry(server), agent_id, thread_id)
     )
 
 
@@ -102,7 +104,7 @@ async def export_document(
 
 
 def _agent_is_busy(server: Any, agent_id: str) -> bool:
-    checker = getattr(server.app_runtime.agent_registry, "is_agent_active", None)
+    checker = getattr(agent_registry(server), "is_agent_active", None)
     return callable(checker) and checker(agent_id) is True
 
 
@@ -116,8 +118,9 @@ def _history_migration_payload(server: Any, *, agent_id: str, user_id: int) -> d
         agent_id=agent_id,
         user_id=user_id,
     )
-    queue = server.app_runtime.gateway.history_backfill
-    processing = any(
+    runtime = server.app_runtime
+    queue = runtime.gateway.history_backfill if runtime is not None else None
+    processing = queue is not None and any(
         queue.contains(thread_id)
         for thread_id in repo.migration_active_thread_ids(agent_id=agent_id, user_id=user_id)
     )
@@ -131,8 +134,9 @@ def _history_migration_payload(server: Any, *, agent_id: str, user_id: int) -> d
         "processing": processing,
         "agent_busy": agent_busy,
         "can_start": (
-            not isinstance(getattr(server.app_runtime, "history_archive", None), HistoryArchive)
+            not isinstance(history_archive(server), HistoryArchive)
             and summary.remaining > 0
+            and queue is not None
             and queue.available_slots > 0
             and not agent_busy
         ),
@@ -153,7 +157,7 @@ def _require_thread(
     server: Any, agent_id: str, thread_id: str, user: Any, as_user: int | None
 ) -> Any:
     require_agent_row(agent_id, user=user, as_user=as_user, server=server)
-    row = server.app_runtime.gateway.thread_registry.get_thread(thread_id)
+    row = core_threads(server).get_thread(thread_id)
     if row is None or row.agent_id != agent_id:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"thread {thread_id!r} not found")
     effective_uid = as_user if as_user is not None else user.id
@@ -172,7 +176,7 @@ async def list_threads(
 ) -> list[dict[str, Any]]:
     """List conversation threads for an agent, including which thread is active for this user."""
     require_agent_row(agent_id, user=user, as_user=as_user, server=server)
-    thread_registry = server.app_runtime.gateway.thread_registry
+    thread_registry = core_threads(server)
     effective_uid = as_user if as_user is not None else user.id
     rows = thread_registry.list_threads(agent_id=agent_id, user_id=effective_uid, limit=limit)
     bound = thread_registry.get_bound_thread_id(
@@ -237,9 +241,7 @@ async def start_history_migration(
     # Fail before changing persisted states when this agent is not actually available.
     server.app_runtime.agent_registry.get_agent(agent_id)
     effective_uid = as_user if as_user is not None else user.id
-    if isinstance(
-        getattr(server.app_runtime, "history_archive", None), HistoryArchive
-    ) or _agent_is_busy(server, agent_id):
+    if isinstance(history_archive(server), HistoryArchive) or _agent_is_busy(server, agent_id):
         return {
             **_history_migration_payload(server, agent_id=agent_id, user_id=effective_uid),
             "accepted": 0,
@@ -287,7 +289,7 @@ async def create_thread(
     require_agent_row(agent_id, user=user, as_user=as_user, server=server)
     effective_uid = as_user if as_user is not None else user.id
     sk = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=effective_uid)
-    tid = await server.app_runtime.gateway.thread_registry.reset(
+    tid = await core_threads(server).reset(
         agent_id=agent_id,
         user_id=effective_uid,
         channel_type=ThreadRegistry.CHANNEL_DASHBOARD,
@@ -372,12 +374,12 @@ async def get_thread_history(
     )
     from octop.infra.history.reader import read_page  # noqa: PLC0415
 
-    archive = getattr(server.app_runtime, "history_archive", None)
+    archive = history_archive(server)
     next_cursor = None
     if isinstance(archive, HistoryArchive):
         page = await read_page(
             archive,
-            server.app_runtime.agent_registry,
+            agent_registry(server),
             agent_id,
             thread_id,
             limit=page_limit,
@@ -399,6 +401,12 @@ async def get_thread_history(
         projection_status = projection_repo.projection_status(thread_id)
         history_loading = projection_status != "ready"
         if history_loading:
+            if server.app_runtime is None:
+                raise OctopError(
+                    ErrorCode.SERVICE_STARTING,
+                    "Legacy history is waiting for the execution runtime",
+                    status=503,
+                )
 
             async def _work() -> None:
                 await _backfill_thread_projection(
@@ -434,11 +442,16 @@ async def get_thread_history(
                 user=user,
             )
     effective_uid = as_user if as_user is not None else user.id
-    hitl_pending = pending_hitl_payload(
-        server.app_runtime.gateway.processor.hitl_coordinator.store,
-        thread_id=thread_id,
-        agent_id=agent_id,
-        user_id=effective_uid,
+    runtime = server.app_runtime
+    hitl_pending = (
+        pending_hitl_payload(
+            runtime.gateway.processor.hitl_coordinator.store,
+            thread_id=thread_id,
+            agent_id=agent_id,
+            user_id=effective_uid,
+        )
+        if runtime is not None
+        else None
     )
     workspace_dir = _agent_facing_workspace_dir(server, agent_id)
     return {
@@ -451,7 +464,7 @@ async def get_thread_history(
         "history_loading": history_loading,
         "history_status": projection_status,
         "history_retry_after_ms": 1500 if history_loading else 0,
-        "turn_active": server.app_runtime.gateway.ws_hub.is_turn_active(thread_id),
+        "turn_active": runtime.gateway.ws_hub.is_turn_active(thread_id) if runtime else False,
         "hitl_pending": hitl_pending,
         **thread_artifacts_payload(
             row.artifacts,
@@ -478,7 +491,7 @@ async def mark_thread_read(
 ) -> None:
     """Clear unread message count for a thread (e.g. when the user opens it in the dashboard)."""
     _require_thread(server, agent_id, thread_id, user, as_user)
-    server.app_runtime.gateway.thread_registry.mark_thread_read(thread_id)
+    core_threads(server).mark_thread_read(thread_id)
 
 
 @router.post(
@@ -509,7 +522,7 @@ async def fork_thread(
     effective_uid = as_user if as_user is not None else user.id
     harness = server.app_runtime.agent_registry.get_agent(agent_id)
     return await fork_dashboard_thread(
-        thread_registry=server.app_runtime.gateway.thread_registry,
+        thread_registry=core_threads(server),
         harness=harness,
         source=row,
         user_id=effective_uid,
@@ -518,7 +531,7 @@ async def fork_thread(
         assistant_turns_from_end=body.assistant_turns_from_end,
         locale=resolve_request_locale(request),
         thread_message_repo=server.services.thread_message_repo,
-        history_archive=getattr(server.app_runtime, "history_archive", None),
+        history_archive=history_archive(server),
     )
 
 
@@ -532,9 +545,7 @@ async def rebind_session(
     """Point the user's dashboard session at an existing thread."""
     _require_thread(server, agent_id, body.thread_id, user, as_user=None)
     sk = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user.id)
-    await server.app_runtime.gateway.thread_registry.rebind(
-        session_key=sk, thread_id=body.thread_id, agent_id=agent_id
-    )
+    await core_threads(server).rebind(session_key=sk, thread_id=body.thread_id, agent_id=agent_id)
     return {"session_key": sk, "thread_id": body.thread_id}
 
 
@@ -555,13 +566,11 @@ async def export_history(
     from octop.infra.history.reader import export_messages  # noqa: PLC0415
 
     _require_thread(server, agent_id, thread_id, user, as_user)
-    archive = getattr(server.app_runtime, "history_archive", None)
+    archive = history_archive(server)
     if not isinstance(archive, HistoryArchive):
         raise OctopError(ErrorCode.NOT_FOUND, "Versioned history is not enabled")
 
-    messages = await export_messages(
-        archive, server.app_runtime.agent_registry, agent_id, thread_id
-    )
+    messages = await export_messages(archive, agent_registry(server), agent_id, thread_id)
     return JSONResponse(
         {
             "format": "octop-history-v2",
@@ -607,7 +616,7 @@ async def patch_thread(
             "pending_plan_path": row.pending_plan_path,
             "hitl_policy": _hitl_policy_payload(row),
         }
-    registry = server.app_runtime.gateway.thread_registry
+    registry = core_threads(server)
     if body.title is not None:
         registry.update_title(thread_id, body.title)
     if body.pinned is not None:
@@ -682,7 +691,7 @@ async def delete_thread(
     """
     _require_thread(server, agent_id, thread_id, user, as_user)
     await server.app_runtime.agent_registry.delete_thread_checkpoint(agent_id, thread_id)
-    server.app_runtime.gateway.thread_registry.delete_thread(thread_id)
+    core_threads(server).delete_thread(thread_id)
     runtime = getattr(server, "app_runtime", None)
     trajectory = getattr(runtime, "trajectory_service", None) if runtime is not None else None
     if isinstance(trajectory, TrajectoryService):

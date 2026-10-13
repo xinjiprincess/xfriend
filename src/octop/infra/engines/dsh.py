@@ -12,9 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from octop_harness.acp.models import ACPRunnerConfig
-
 from octop.infra.agents.settings.acp import ACPSettingsStore
+from octop.infra.engines.mcp import MCPExtensions
 from octop.infra.engines.runtime import runner_identity
 from octop.infra.utils.async_io import finish_io
 
@@ -31,6 +30,7 @@ class Session:
     engine_identity: dict[str, str] | None = None
     isolated_runtime: bool = True
     pinned_runner: dict[str, Any] | None = None
+    mcp_extensions: list[dict[str, Any]] = field(default_factory=list)
     messages: list[dict[str, Any]] = field(default_factory=list)
     state: str = "idle"
     error: str | None = None
@@ -55,6 +55,7 @@ class Session:
             "error": self.error,
             "permission": self.permission,
             "messages": self.messages,
+            "extensions": [item["name"] for item in self.mcp_extensions],
         }
 
 
@@ -62,9 +63,33 @@ class DSHService:
     """One lazy process per session; transcripts survive process and app restarts."""
 
     def __init__(self, root: Path, settings: ACPSettingsStore) -> None:
+        self.home = root
         self.root = root / "engine-data" / "dsh"
         self.settings = settings
         self.sessions: dict[tuple[int, str], Session] = {}
+        self._extensions_lock = asyncio.Lock()
+
+    async def extensions(self, user_id: int, update: MCPExtensions | None = None) -> MCPExtensions:
+        path = self.root / str(user_id) / "extensions.json"
+        async with self._extensions_lock:
+            if update is None:
+
+                def read() -> MCPExtensions:
+                    if not path.exists():
+                        return MCPExtensions()
+                    return MCPExtensions.model_validate_json(path.read_text("utf-8"))
+
+                return await asyncio.get_running_loop().run_in_executor(None, read)
+            text = update.model_dump_json()
+
+            def write() -> None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = path.with_suffix(".tmp")
+                temporary.write_text(text, "utf-8")
+                temporary.replace(path)
+
+            await finish_io(write)
+            return update
 
     def _folder(self, user_id: int, session_id: str) -> Path:
         # Only canonical UUIDs are accepted, never user-supplied filesystem paths.
@@ -85,6 +110,7 @@ class DSHService:
                 "engine_identity": session.engine_identity,
                 "isolated_runtime": session.isolated_runtime,
                 "pinned_runner": session.pinned_runner,
+                "mcp_extensions": session.mcp_extensions,
             },
             ensure_ascii=False,
         )
@@ -112,6 +138,7 @@ class DSHService:
                 engine_identity=raw.get("engine_identity"),
                 isolated_runtime=raw.get("isolated_runtime", False),
                 pinned_runner=raw.get("pinned_runner"),
+                mcp_extensions=raw.get("mcp_extensions", []),
                 messages=raw.get("messages", []),
                 state="interrupted"
                 if raw.get("state") in {"running", "permission"}
@@ -138,14 +165,26 @@ class DSHService:
         exists = await asyncio.get_running_loop().run_in_executor(None, directory.is_dir)
         if not exists:
             raise ValueError("Workspace does not exist")
-        session = Session(user_id=user_id, id=str(uuid.uuid4()), cwd=str(directory))
+        configured = await self.extensions(user_id)
+        session = Session(
+            user_id=user_id,
+            id=str(uuid.uuid4()),
+            cwd=str(directory),
+            mcp_extensions=[item.acp() for item in configured.extensions],
+        )
         self.sessions[(user_id, session.id)] = session
         await self._save(session)
         return session
 
     async def _open(self, session: Session) -> None:
         from acp import PROTOCOL_VERSION, spawn_agent_process
-        from acp.schema import Implementation
+        from acp.schema import (
+            AcpMcpServer,
+            HttpMcpServer,
+            Implementation,
+            McpServerStdio,
+            SseMcpServer,
+        )
 
         from octop.infra.engines.acp_client import StreamingClient
 
@@ -164,6 +203,8 @@ class DSHService:
             packages = self.root.parents[1] / "engine-packages" / "dsh"
             if Path(str(runner.get("command", ""))).is_relative_to(packages):
                 session.pinned_runner = {key: runner[key] for key in ("command", "args")}
+        from octop_harness.acp.models import ACPRunnerConfig
+
         config = ACPRunnerConfig.from_dict(runner)
         if not config.enabled or not config.command.strip():
             raise ValueError("DSH runner is disabled or has no command")
@@ -210,11 +251,19 @@ class DSHService:
                 )
                 if initialized.protocol_version != PROTOCOL_VERSION:
                     raise ValueError("Unsupported ACP protocol version")
+                mcp_servers: list[HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio] = [
+                    HttpMcpServer.model_validate(item)
+                    if item.get("type") == "http"
+                    else McpServerStdio.model_validate(item)
+                    for item in session.mcp_extensions
+                ]
                 if session.acp_id:
                     # Fail explicitly if resume fails; never silently discard context.
-                    await conn.resume_session(session_id=session.acp_id, cwd=session.cwd)
+                    await conn.resume_session(
+                        session_id=session.acp_id, cwd=session.cwd, mcp_servers=mcp_servers
+                    )
                 else:
-                    created = await conn.new_session(cwd=session.cwd)
+                    created = await conn.new_session(cwd=session.cwd, mcp_servers=mcp_servers)
                     session.acp_id = created.session_id
                     await self._save(session)
         except BaseException:
@@ -227,6 +276,9 @@ class DSHService:
         session.client, session.conn, session.process, session.stack = client, conn, process, stack
 
     async def prompt(self, session: Session, text: str) -> None:
+        from octop.infra.licensing.service import require_product_license
+
+        await require_product_license(self.home)
         async with session.lock:
             if session.task is not None and not session.task.done():
                 raise ValueError("Session is busy")

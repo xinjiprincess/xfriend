@@ -177,6 +177,7 @@ async def test_text_projection_and_toast_failure_still_pushes() -> None:
 async def test_text_im_skips_checkpoint() -> None:
     session = _session(channel_type="feishu")
     agent_manager = MagicMock()
+    agent_manager.ensure_agent_runtime = AsyncMock(side_effect=RuntimeError("model stopped"))
     gateway = MagicMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
@@ -190,6 +191,7 @@ async def test_text_im_skips_checkpoint() -> None:
     )
     await service.deliver(_command())
     agent_manager.get_agent.assert_not_called()
+    agent_manager.ensure_agent_runtime.assert_not_awaited()
     gateway.push_session_text.assert_awaited_once()
     gateway.notify_dashboard_push.assert_not_awaited()
 

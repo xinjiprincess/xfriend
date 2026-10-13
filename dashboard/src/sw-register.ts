@@ -12,6 +12,8 @@
  *     so Vite HMR and an old worker do not fight over navigations.
  */
 
+import { usesDesktopStartup } from "./utils/desktopStartup";
+
 let pendingRegistration: ServiceWorkerRegistration | null = null;
 let applyingUpdate = false;
 
@@ -121,6 +123,40 @@ export async function registerProductionSW(): Promise<void> {
 
 export async function registerSW(): Promise<void> {
   if (!("serviceWorker" in navigator)) return;
+
+  if (usesDesktopStartup()) {
+    // Desktop assets ship with the executable; a PWA cache can mix versions.
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(
+        registrations
+          .filter((registration) =>
+            [
+              registration.active,
+              registration.waiting,
+              registration.installing,
+            ].some(
+              (worker) =>
+                worker &&
+                new URL(worker.scriptURL).origin === location.origin &&
+                new URL(worker.scriptURL).pathname === "/sw.js",
+            ),
+          )
+          .map((registration) => registration.unregister()),
+      );
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(
+          keys
+            .filter((key) => key.startsWith("workbox-precache-"))
+            .map((key) => caches.delete(key)),
+        );
+      }
+    } catch (error) {
+      console.warn("[SW] Desktop cleanup failed:", error);
+    }
+    return;
+  }
 
   if (import.meta.env.DEV) {
     try {

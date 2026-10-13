@@ -17,6 +17,11 @@ class HealthResponse(BaseModel):
     application: str = "xfriend"
     protocol: int = 1
     ready: bool
+    core_ready: bool
+    runtime_ready: bool
+    runtime_failed: bool
+    agents_ready: bool
+    agents_pending: int
     phase: str
     startup_id: str
     started_at: int | None
@@ -29,6 +34,10 @@ class StartupResponse(BaseModel):
     startup_id: str
     phase: str
     ready: bool
+    core_ready: bool
+    runtime_ready: bool
+    runtime_failed: bool
+    agents_ready: bool
     elapsed_ms: int
     checkpoints: dict[str, int]
     failure: str | None
@@ -59,6 +68,15 @@ async def health(server: Any = Depends(get_server)) -> HealthResponse:
     return HealthResponse(
         ok=True,
         ready=progress.ready,
+        core_ready=progress.core_ready or progress.ready,
+        runtime_ready=progress.runtime_ready,
+        runtime_failed=progress.runtime_failed,
+        agents_ready=progress.agents_ready or progress.ready,
+        agents_pending=(
+            server.app_runtime.agent_registry.agents_pending
+            if server.app_runtime is not None
+            else 0
+        ),
         phase=progress.phase,
         startup_id=progress.startup_id,
         started_at=server._started_at,

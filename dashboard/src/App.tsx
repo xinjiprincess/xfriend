@@ -4,7 +4,7 @@ import zhCN from "antd/locale/zh_CN";
 import enUS from "antd/locale/en_US";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import DesktopWindowControls from "./components/DesktopWindowControls";
 import {
   DesktopChromeProvider,
@@ -12,29 +12,35 @@ import {
 } from "./hooks/useDesktopChrome";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import MainLayout from "./layouts/MainLayout";
-import LoginPage from "./pages/Login";
-import OidcComplete from "./pages/Login/OidcComplete";
-import SetupPage from "./pages/Setup";
-import InvitePage from "./pages/Invite";
 import AuthGuard from "./components/AuthGuard";
 import OctopSpinner from "./components/OctopSpinner";
 import { AntdAppProvider } from "./components/AntdAppProvider";
 import GlobalErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { AgentProvider } from "./context/AgentContext";
+import { RuntimeStartupProvider } from "./context/RuntimeStartupContext";
 import { LayoutModeProvider } from "./context/LayoutModeContext";
 import { VoiceOutputProvider } from "./context/VoiceOutputContext";
 import { useIsMobile } from "./hooks/useIsMobile";
 import { useUnauthorizedRedirect } from "./hooks/useUnauthorizedRedirect";
 import { installDesktopExternalLinks } from "./utils/desktopExternalLinks";
 import { brandTokensFor } from "./styles/themePalettes";
-import DesktopAssistant from "./pages/DesktopAssistant";
+import LicenseGate from "./components/LicenseGate";
+import StartupGate from "./components/StartupGate";
+import StartupDestination from "./components/StartupDestination";
+import { CloudAccountProvider } from "./context/CloudAccountContext";
 import { getAuthToken } from "./api/request";
 import "./styles/theme-vars.css";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 import "./styles/spin-override.css";
+
+const MainLayout = lazy(() => import("./layouts/MainLayout"));
+const LoginPage = lazy(() => import("./pages/Login"));
+const OidcComplete = lazy(() => import("./pages/Login/OidcComplete"));
+const SetupPage = lazy(() => import("./pages/Setup"));
+const InvitePage = lazy(() => import("./pages/Invite"));
+const DesktopAssistant = lazy(() => import("./pages/DesktopAssistant"));
 
 const GlobalStyle = createGlobalStyle`
 * {
@@ -148,27 +154,46 @@ function ThemedApp() {
           {desktopChrome && location.pathname !== "/desktop-assistant" ? (
             <DesktopWindowControls chrome={desktopChrome} />
           ) : null}
-          <Routes>
-            <Route path="/desktop-assistant" element={<DesktopAssistant />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/login/oidc/complete" element={<OidcComplete />} />
-            <Route path="/setup" element={<SetupPage />} />
-            <Route path="/invite" element={<InvitePage />} />
-            <Route
-              path="/*"
-              element={
-                <AuthGuard>
-                  <AgentProvider>
-                    <LayoutModeProvider>
-                      <VoiceOutputProvider>
-                        <MainLayout />
-                      </VoiceOutputProvider>
-                    </LayoutModeProvider>
-                  </AgentProvider>
-                </AuthGuard>
-              }
-            />
-          </Routes>
+          <CloudAccountProvider>
+            <StartupGate>
+              <Suspense fallback={<OctopSpinner />}>
+                <Routes>
+                  <Route
+                    path="/desktop-assistant"
+                    element={<DesktopAssistant />}
+                  />
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/register" element={<LoginPage />} />
+                  <Route
+                    path="/login/oidc/complete"
+                    element={<OidcComplete />}
+                  />
+                  <Route path="/setup" element={<SetupPage />} />
+                  <Route path="/invite" element={<InvitePage />} />
+                  <Route
+                    path="/*"
+                    element={
+                      <AuthGuard>
+                        <LicenseGate>
+                          <StartupDestination>
+                            <AgentProvider>
+                              <RuntimeStartupProvider>
+                                <LayoutModeProvider>
+                                  <VoiceOutputProvider>
+                                    <MainLayout />
+                                  </VoiceOutputProvider>
+                                </LayoutModeProvider>
+                              </RuntimeStartupProvider>
+                            </AgentProvider>
+                          </StartupDestination>
+                        </LicenseGate>
+                      </AuthGuard>
+                    }
+                  />
+                </Routes>
+              </Suspense>
+            </StartupGate>
+          </CloudAccountProvider>
         </DesktopChromeProvider>
       </AntdAppProvider>
     </ConfigProvider>

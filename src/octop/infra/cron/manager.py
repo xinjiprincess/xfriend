@@ -79,12 +79,19 @@ class CronManager:
         self._repos = repos
         self._delivery_service.replace_repos(repos)
 
-    async def boot(self) -> None:
-        self._scheduler.start()
+    async def boot(self, *, paused: bool = False) -> None:
+        if paused:
+            self._scheduler.start(paused=True)
+        else:
+            self._scheduler.start()
         rows = self._repos.cron_repo.list_all(include_disabled=False)
         for row in rows:
             self._schedule(row)
         logger.info("CronManager booted; scheduled %d jobs", len(rows))
+
+    def resume(self) -> None:
+        """Release restored jobs using the scheduler's existing misfire policy."""
+        self._scheduler.resume()
 
     async def reload_from_db(self) -> None:
         """Drop user cron schedules and re-register enabled jobs from the DB.

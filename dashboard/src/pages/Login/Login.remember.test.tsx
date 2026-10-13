@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
+import { StartupDraftContext } from "../../context/StartupDraftContext";
 
 vi.mock("../../context/ThemeContext", () => ({
   useTheme: () => ({ isDark: false }),
@@ -26,6 +27,36 @@ vi.mock("./CaptchaField", () => ({
 import LoginPage from "./index";
 
 describe("Login remember-me checkbox", () => {
+  it.each([null, "本机服务启动失败，请重新启动软件"])(
+    "keeps login visible while unavailable: %s",
+    (startupError) => {
+      render(
+        <MemoryRouter>
+          <StartupDraftContext.Provider
+            value={{
+              ready: false,
+              startupError,
+              draft: "",
+              setDraft: () => {},
+              destination: null,
+              setDestination: () => {},
+            }}
+          >
+            <LoginPage />
+          </StartupDraftContext.Provider>
+        </MemoryRouter>,
+      );
+      expect(
+        screen.getByRole(startupError ? "alert" : "status"),
+      ).toHaveTextContent(
+        startupError || /startup\.preparing|正在准备本机服务/,
+      );
+      expect(
+        screen.getByRole("button", { name: /login\.submit|登录|Sign in/ }),
+      ).toBeDisabled();
+    },
+  );
+
   it("renders checked by default", () => {
     render(
       <MemoryRouter>

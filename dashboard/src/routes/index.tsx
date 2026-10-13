@@ -3,6 +3,7 @@ import { Navigate, useLocation } from "react-router-dom";
 
 // Lazy-loaded pages — Common
 const ExpertsPage = lazy(() => import("../pages/Experts"));
+const CustomersPage = lazy(() => import("../pages/Customers"));
 const CronJobsPage = lazy(() => import("../pages/Control/CronJobs"));
 const ConnectorsPage = lazy(() => import("../pages/Agent/Connectors"));
 const SkillPackagesPage = lazy(() => import("../pages/SkillPackages"));
@@ -14,6 +15,7 @@ const PersonalizationPage = lazy(
 const ACPPage = lazy(() => import("../pages/Agent/ACP"));
 const AssistantSettings = lazy(() => import("../pages/AssistantSettings"));
 const ExecutionPage = lazy(() => import("../pages/Execution"));
+const EnginesPage = lazy(() => import("../pages/Engines"));
 const PlatformCollaboration = lazy(
   () => import("../pages/PlatformCollaboration"),
 );
@@ -24,6 +26,11 @@ const RemoteDesktopPage = lazy(() => import("../pages/Control/RemoteDesktop"));
 
 // Lazy-loaded pages — Settings
 const ModelsPage = lazy(() => import("../pages/Settings/Models"));
+const AccountSettingsPage = lazy(() => import("../pages/Settings/Account"));
+const TransferPage = lazy(() => import("../pages/Settings/Transfer"));
+const PhoneConnectionPage = lazy(
+  () => import("../pages/Settings/PhoneConnection"),
+);
 
 // Lazy-loaded pages — Admin
 const OctopAdminUsersPage = lazy(() => import("../pages/Admin/Users"));
@@ -52,7 +59,10 @@ export interface RouteConfig {
 }
 
 export const pathToKey: Record<string, string> = {
+  "/customers": "customers",
   "/chat": "chat",
+  "/settings/transfer": "transfer",
+  "/settings/phone": "phone-connection",
   // Common
   "/experts": "experts",
   "/tasks": "tasks",
@@ -73,9 +83,12 @@ export const pathToKey: Record<string, string> = {
   "/agent-config": "agent-config",
   // Control
   "/acp": "acp",
-  "/platform-collaboration": "acp",
-  "/assistant-settings": "acp",
+  "/platform-collaboration": "platform-collaboration",
+  "/assistant-settings": "assistant-settings",
   "/execution": "experts",
+  "/engines": "engines",
+  "/engines/dsh": "engines",
+  "/engines/dual": "engines",
   "/channels": "channels",
   "/workbench": "workbench",
   "/workbench/terminal": "workbench",
@@ -152,6 +165,12 @@ export function resolveSelectedKey(pathname: string): string {
 }
 
 export const routeConfigs: RouteConfig[] = [
+  { path: "/customers", element: <CustomersPage /> },
+  { path: "/settings/account", element: <AccountSettingsPage /> },
+  { path: "/settings/transfer", element: <TransferPage /> },
+  { path: "/settings/phone", element: <PhoneConnectionPage /> },
+  { path: "/engines/dsh/original", element: <EnginesPage /> },
+  { path: "/engines/settings", element: <EnginesPage /> },
   // Chat (handled via ChatWithKey wrapper in MainLayout)
   { path: "/chat", element: null, useWrapper: true },
   { path: "/chat/:agentId", element: null, useWrapper: true },
@@ -180,6 +199,9 @@ export const routeConfigs: RouteConfig[] = [
   { path: "/platform-collaboration", element: <PlatformCollaboration /> },
   { path: "/assistant-settings", element: <AssistantSettings /> },
   { path: "/execution", element: <ExecutionPage /> },
+  { path: "/engines", element: <EnginesPage /> },
+  { path: "/engines/dsh", element: <EnginesPage /> },
+  { path: "/engines/dual", element: <EnginesPage /> },
   {
     path: "/channels",
     element: <RedirectPreserveSearch to="/personalization/channels" />,

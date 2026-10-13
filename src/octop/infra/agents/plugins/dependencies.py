@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from importlib import metadata
 from pathlib import Path
+from typing import Protocol
 
-from octop_harness.plugins import PluginManifest
 from packaging.requirements import InvalidRequirement, Requirement
 
 
-def dependencies_satisfied(plugin_dir: Path, manifest: PluginManifest) -> bool:
+class _Requirements(Protocol):
+    @property
+    def requires(self) -> tuple[str, ...]: ...
+
+
+def dependencies_satisfied(plugin_dir: Path, manifest: _Requirements) -> bool:
     requirements = list(manifest.requires)
     file = plugin_dir / "requirements.txt"
     if file.is_file():

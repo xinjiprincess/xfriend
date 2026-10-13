@@ -12,7 +12,6 @@ import {
 } from "antd";
 import { useTranslation } from "react-i18next";
 import ConversationExport from "../../../components/ConversationExport";
-import EnginePackages from "../../../components/EnginePackages";
 import {
   enginesApi,
   type EngineSession,
@@ -92,7 +91,6 @@ export default function DSHWorkspace() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <EnginePackages />
       <Alert
         type="info"
         showIcon
@@ -123,6 +121,9 @@ export default function DSHWorkspace() {
           }))}
         />
       </Space>
+      <Typography.Text type="secondary">
+        {t("engineHub.dshTools")}
+      </Typography.Text>
       {session && (
         <>
           <Button onClick={() => setExportOpen(true)}>
@@ -138,6 +139,7 @@ export default function DSHWorkspace() {
           <Space>
             <Tag>DSH</Tag>
             <Tag>{session.engine_version}</Tag>
+            {session.extensions?.map((name) => <Tag key={name}>{name}</Tag>)}
             <Typography.Text>
               {t(`engines.states.${session.state}`, {
                 defaultValue: session.state,

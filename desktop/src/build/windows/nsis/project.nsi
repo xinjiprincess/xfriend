@@ -26,6 +26,7 @@ VIAddVersionKey "LegalCopyright"  "${INFO_COPYRIGHT}"
 VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 
 ManifestDPIAware true
+ManifestLongPathAware true
 
 !include "MUI.nsh"
 
@@ -125,6 +126,14 @@ Section
 
     !insertmacro wails.files
 
+    # Immutable runtime is expanded by the installer, not by the first launch.
+    # Write the selector last so a failed installation cannot select partial code.
+    SetOutPath "\\?\$INSTDIR\runtimes\${INFO_PRODUCTVERSION}"
+    File /r "${ARG_INSTALLED_RUNTIME}\*"
+    File "/oname=Xfriend-updater.exe" "..\..\..\bin\Xfriend-updater.exe"
+    SetOutPath $INSTDIR
+    File "..\..\..\bundled\runtime-release.json"
+
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortcut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
@@ -139,6 +148,7 @@ Section "uninstall"
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}"
 
+    RMDir /r "\\?\$INSTDIR\runtimes"
     RMDir /r $INSTDIR
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"

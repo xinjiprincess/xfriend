@@ -11,7 +11,7 @@ info:
   description: "Singu Xfriend desktop shell"
   copyright: "(c) 2026, Singu Xfriend"
   comments: "Wails v3 + green portable"
-  version: "1.4.0"
+  version: "1.4.9"
 
 dev_mode:
   root_path: .

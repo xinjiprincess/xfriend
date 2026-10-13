@@ -32,6 +32,7 @@ import {
 import { injectPendingHitlMessage } from "../../../utils/injectPendingHitlMessage";
 import { promoteAskUserToolMessage } from "../utils/pendingHitl";
 import { rewritePeerSpeakerId } from "../../../utils/remoteExpert";
+import { parseApiError } from "../../../utils/apiError";
 import type {
   ChatAttachment,
   ChatMessage,
@@ -806,18 +807,25 @@ export function useChat(
   sessionId: string | null,
   agentId: string | null = null,
   isTeamRoom = false,
+  executionReady = true,
 ) {
   const stableSessionId = sessionId || "__empty__";
   useEffect(() => {
     chatStore.setSessionTeamRoom(stableSessionId, isTeamRoom);
   }, [stableSessionId, isTeamRoom]);
   const [historyError, setHistoryError] = useState(false);
+  const [startupHistoryThread, setStartupHistoryThread] = useState<
+    string | null
+  >(null);
+  const startupHistoryRetried = useRef(false);
   const failedHistoryOperation = useRef<"initial" | "older" | "latest">(
     "initial",
   );
   useEffect(() => {
     setHistoryError(false);
-  }, [stableSessionId]);
+    setStartupHistoryThread(null);
+    startupHistoryRetried.current = false;
+  }, [stableSessionId, agentId]);
 
   // Resume reconnect only for the thread the user is looking at.
   useEffect(() => {
@@ -887,6 +895,7 @@ export function useChat(
       conversationMode?: "ask" | "plan" | "craft" | null,
       hitlPolicy?: HitlSessionPolicy | null,
     ) => {
+      if (!executionReady) return;
       const key = storeKey || stableSessionId;
 
       const userMsg: ChatMessage = {
@@ -922,7 +931,7 @@ export function useChat(
         hitlPolicy,
       );
     },
-    [stableSessionId],
+    [stableSessionId, executionReady],
   );
 
   const cancelStream = useCallback(() => {
@@ -985,10 +994,14 @@ export function useChat(
           nextCursor: loaded.nextCursor,
         });
         setHistoryError(false);
+        setStartupHistoryThread(null);
         attachAfterHistory(key, targetThreadId);
-      } catch {
+      } catch (error) {
         if (loadGenRef.current === gen) {
           failedHistoryOperation.current = "initial";
+          setStartupHistoryThread(
+            parseApiError(error)?.code === "SERVICE_STARTING" ? key : null,
+          );
           setHistoryError(true);
         }
       } finally {
@@ -1033,11 +1046,17 @@ export function useChat(
         nextOffset,
         nextCursor,
       });
-      if (loadGenRef.current === gen) setHistoryError(false);
+      if (loadGenRef.current === gen) {
+        setHistoryError(false);
+        setStartupHistoryThread(null);
+      }
       return true;
-    } catch {
+    } catch (error) {
       if (loadGenRef.current === gen) {
         failedHistoryOperation.current = "older";
+        setStartupHistoryThread(
+          parseApiError(error)?.code === "SERVICE_STARTING" ? key : null,
+        );
         setHistoryError(true);
       }
       return false;
@@ -1103,9 +1122,13 @@ export function useChat(
             olderPrefix.length > 0 ? snap.historyNextCursor : nextCursor,
         });
         setHistoryError(false);
-      } catch {
+        setStartupHistoryThread(null);
+      } catch (error) {
         if (loadGenRef.current === gen) {
           failedHistoryOperation.current = "latest";
+          setStartupHistoryThread(
+            parseApiError(error)?.code === "SERVICE_STARTING" ? key : null,
+          );
           setHistoryError(true);
         }
       } finally {
@@ -1123,6 +1146,22 @@ export function useChat(
     else await loadHistory(stableSessionId);
   }, [loadMoreHistory, refreshHistory, loadHistory, stableSessionId]);
 
+  useEffect(() => {
+    if (!executionReady) {
+      startupHistoryRetried.current = false;
+      return;
+    }
+    // Retry only a blocked history operation, retaining its page/cursor. A
+    // normal readiness update must not replace already loaded older messages.
+    if (
+      startupHistoryThread !== stableSessionId ||
+      startupHistoryRetried.current
+    )
+      return;
+    startupHistoryRetried.current = true;
+    void retryHistory();
+  }, [executionReady, startupHistoryThread, stableSessionId, retryHistory]);
+
   /**
    * Edit a historical user message: truncate everything from that message
    * onwards, replace its content, then re-send to the backend.
@@ -1135,6 +1174,7 @@ export function useChat(
       _sessionKey: string,
       agentId: string,
     ) => {
+      if (!executionReady) return;
       const ok = chatStore.truncateAndReplaceUserMessage(
         stableSessionId,
         messageId,
@@ -1154,7 +1194,7 @@ export function useChat(
         stableSessionId !== "__empty__" ? stableSessionId : undefined,
       );
     },
-    [stableSessionId],
+    [stableSessionId, executionReady],
   );
 
   const clearMessages = useCallback(() => {
@@ -1168,7 +1208,7 @@ export function useChat(
       dismissed?: boolean,
       hitlPolicy?: HitlSessionPolicy,
     ) => {
-      if (!agentId) return;
+      if (!agentId || !executionReady) return;
       const key = storeKey || stableSessionId;
       const threadId =
         storeKey || (stableSessionId !== "__empty__" ? stableSessionId : "");
@@ -1185,7 +1225,7 @@ export function useChat(
         hitlPolicy,
       );
     },
-    [agentId, stableSessionId, refreshHistory],
+    [agentId, stableSessionId, refreshHistory, executionReady],
   );
 
   return {
