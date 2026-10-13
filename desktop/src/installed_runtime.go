@@ -13,6 +13,10 @@ import (
 // accounts, conversations and trial state under octopHome(). No extraction is
 // performed at launch, including the first launch after an upgrade.
 func installedRuntime(directory string) (root string, installed bool, err error) {
+	// macOS reserves Contents/MacOS for signed executables, not runtime data.
+	if filepath.Base(directory) == "MacOS" && filepath.Base(filepath.Dir(directory)) == "Contents" {
+		directory = filepath.Join(filepath.Dir(directory), "Resources")
+	}
 	data, err := os.ReadFile(filepath.Join(directory, "runtime-release.json"))
 	if os.IsNotExist(err) {
 		return "", false, nil

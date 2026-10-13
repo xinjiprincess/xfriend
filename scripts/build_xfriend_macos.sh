@@ -22,15 +22,15 @@ cd desktop/src
 wails3 task darwin:build ARCH=arm64 VERSION="$version" PRODUCTION=true PORTABLE_ZIP="$portable"
 app="$root/.artifacts/macos-app-$version/Xfriend.app"
 test ! -e "$app"
-mkdir -p "$app/Contents/MacOS/runtimes" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/runtimes"
 cp bin/Xfriend "$app/Contents/MacOS/Xfriend"
 cp build/darwin/icons.icns "$app/Contents/Resources/icons.icns"
 cp build/darwin/Info.plist "$app/Contents/Info.plist"
 python3 build/stamp_version.py plist "$app/Contents/Info.plist" "$version"
 /usr/libexec/PlistBuddy -c 'Set :LSMinimumSystemVersion 14.0' "$app/Contents/Info.plist"
 # Predeploy code inside the application: no first-launch runtime extraction.
-ditto "$GREEN_ROOT/release/Octop-darwin-arm64" "$app/Contents/MacOS/runtimes/$version"
-printf '{"version":"%s"}\n' "$version" > "$app/Contents/MacOS/runtime-release.json"
+ditto "$GREEN_ROOT/release/Octop-darwin-arm64" "$app/Contents/Resources/runtimes/$version"
+printf '{"version":"%s"}\n' "$version" > "$app/Contents/Resources/runtime-release.json"
 # Preserve signatures and hashes of pinned runtimes; sign the enclosing app only.
 codesign --force --sign - "$app"
 codesign --verify --deep --strict "$app"

@@ -36,6 +36,17 @@ func TestInstalledRuntime(t *testing.T) {
 	if got, installed, err := installedRuntime(dir); got != root || !installed || err != nil {
 		t.Fatalf("got=%s installed=%v err=%v", got, installed, err)
 	}
+	contents := filepath.Join(t.TempDir(), "Xfriend.app", "Contents")
+	if err := os.MkdirAll(contents, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(dir, filepath.Join(contents, "Resources")); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(contents, "Resources", "runtimes", "1.4.4")
+	if got, installed, err := installedRuntime(filepath.Join(contents, "MacOS")); got != want || !installed || err != nil {
+		t.Fatalf("Mac bundle: got=%s installed=%v err=%v", got, installed, err)
+	}
 }
 
 func TestInstalledUpgradeBacksUpOnlyOnVersionChange(t *testing.T) {
