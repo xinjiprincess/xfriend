@@ -6937,5 +6937,16 @@
       "skills-approval": "Skills await trust in pending-import",
       "dsh-workspace": "Review DSH configuration in unified engine settings"
     }
+  },
+  "dshExpert": {
+    "name": "DeepSeek Harness expert",
+    "description": "Work on projects with DSH and your authorized connectors.",
+    "missing": "DSH is not included in the Standard edition. Install the DSH Slim edition to enable it; existing data is preserved.",
+    "open": "Open expert",
+    "defaultWorkspace": "Leave empty for your personal workspace",
+    "connectors": "Connectors available to this expert",
+    "manageConnectors": "Manage connectors",
+    "models": "Model settings",
+    "save": "Save settings"
   }
 }

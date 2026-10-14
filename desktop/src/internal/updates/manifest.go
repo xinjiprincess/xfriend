@@ -30,6 +30,7 @@ type Release struct {
 	Application    string     `json:"application"`
 	Platform       string     `json:"platform"`
 	Channel        string     `json:"channel"`
+	Flavor         string     `json:"flavor,omitempty"`
 	Version        string     `json:"version"`
 	Sequence       uint64     `json:"sequence"`
 	Expires        time.Time  `json:"expires"`
@@ -48,6 +49,7 @@ type Policy struct {
 	Keys            map[string]ed25519.PublicKey
 	Channel         string
 	Platform        string
+	Flavor          string
 	MinimumSequence uint64
 	UpdaterVersion  int
 	Now             time.Time
@@ -93,6 +95,9 @@ func Verify(data []byte, policy Policy) (Release, error) {
 	}
 	if release.Format != 1 || release.Application != "xfriend" || release.Platform != policy.Platform || release.Channel != policy.Channel || !versionPattern.MatchString(release.Version) {
 		return Release{}, errors.New("incompatible release")
+	}
+	if policy.Flavor != "" && release.Flavor != policy.Flavor {
+		return Release{}, errors.New("update package does not match installed edition")
 	}
 	if release.Sequence == 0 || release.Sequence < policy.MinimumSequence || policy.Now.IsZero() || !release.Expires.After(policy.Now) {
 		return Release{}, errors.New("expired or rolled back release")

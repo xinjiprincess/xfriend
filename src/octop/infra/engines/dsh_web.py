@@ -6,6 +6,7 @@ import asyncio
 import os
 import re
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from octop.infra.agents.settings.acp import ACPSettingsStore
@@ -15,9 +16,10 @@ _URL = re.compile(r"dsh web: (http://[^\s]+)")
 
 
 class DSHWebWorkspace:
-    def __init__(self, home: Path, settings: ACPSettingsStore) -> None:
+    def __init__(self, home: Path, settings: ACPSettingsStore, engine: Any = None) -> None:
         self.home = home
         self.settings = settings
+        self.engine = engine
         self._lock = asyncio.Lock()
         self._running: dict[int, tuple[asyncio.subprocess.Process, str, asyncio.Task[None]]] = {}
 
@@ -61,10 +63,18 @@ class DSHWebWorkspace:
                 "DSH_HOME": str(data_dir),
                 "DSH_TELEMETRY_DISABLED": "1",
             }
+            extra_args: list[str] = []
+            if self.engine is not None and self.engine.bridge is not None:
+                launch_env, extra_args = await self.engine.bridge.launch(
+                    user_id, data_dir, await self.engine.preferences(user_id), f"web-{user_id}"
+                )
+                env.update(launch_env)
             process = await asyncio.create_subprocess_exec(
                 str(node),
                 str(cli),
+                "--profile",
                 "web",
+                *extra_args,
                 "--no-open",
                 "--host",
                 "127.0.0.1",
@@ -116,3 +126,11 @@ class DSHWebWorkspace:
                 await self._stop(process)
                 drain.cancel()
                 await asyncio.gather(drain, return_exceptions=True)
+
+    async def close_user(self, user_id: int) -> None:
+        async with self._lock:
+            current = self._running.pop(user_id, None)
+            if current is not None:
+                await self._stop(current[0])
+                current[2].cancel()
+                await asyncio.gather(current[2], return_exceptions=True)

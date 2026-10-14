@@ -9,7 +9,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from octop.api.common.documents import DocumentPreview, DocumentSelection
-from octop.api.deps import get_server, require_admin
+from octop.api.common.validators import assert_user_backend_root_dirs
+from octop.api.deps import current_user, get_server, require_admin
 from octop.infra.engines.dsh import DSHService, Session
 from octop.infra.engines.mcp import MCPExtensions
 from octop.infra.errors import ErrorCode, OctopError
@@ -25,13 +26,65 @@ class DSHWebView(BaseModel):
     url: str = Field(description="Authenticated loopback URL for the original DSH workspace")
 
 
+class DSHExpertSettings(BaseModel):
+    cwd: str = Field(default="", max_length=4096)
+    connectors: list[str] = Field(default_factory=list, max_length=50)
+    model: str = Field(default="", max_length=512)
+
+
+class DSHExpertView(DSHExpertSettings):
+    id: str
+    engine: str
+    available: bool
+    choices: list[dict[str, str]]
+    models: list[dict[str, str]]
+
+
+@router.get("/expert", response_model=DSHExpertView, summary="Read the built-in DSH expert")
+async def expert_state(
+    user: User = Depends(current_user), server: OctopServer = Depends(get_server)
+) -> Any:
+    return await server.dsh_service.expert(user.id)
+
+
+@router.put(
+    "/expert", response_model=DSHExpertView, summary="Configure your DSH workspace and connectors"
+)
+async def expert_settings(
+    body: DSHExpertSettings,
+    user: User = Depends(current_user),
+    server: OctopServer = Depends(get_server),
+) -> Any:
+    assert server.services is not None
+    if body.model and body.model not in {
+        item["id"] for item in await server.dsh_service.bridge.models()
+    }:
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, "SLASH_BAD_ARGS")
+    if body.cwd:
+        assert_user_backend_root_dirs(
+            user,
+            {"type": "local_shell", "root_dir": body.cwd},
+            policy_repo=server.services.user_policy_repo,
+        )
+    choices = await server.dsh_service.bridge.choices(user.id)
+    if not set(body.connectors) <= {item["id"] for item in choices}:
+        raise OctopError(ErrorCode.FORBIDDEN, "FORBIDDEN")
+    try:
+        await server.dsh_service.preferences(user.id, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="DSH_SESSION_BUSY") from exc
+    if server._dsh_web is not None:
+        await server._dsh_web.close_user(user.id)
+    return await server.dsh_service.expert(user.id)
+
+
 @router.get(
     "/web",
     response_model=DSHWebView,
-    summary="Open the original DSH workspace on demand (admin)",
+    summary="Open your original DSH workspace on demand",
 )
 async def web_workspace(
-    server: OctopServer = Depends(get_server), _user: User = Depends(require_admin())
+    server: OctopServer = Depends(get_server), _user: User = Depends(current_user)
 ) -> DSHWebView:
     try:
         return DSHWebView(url=await server.dsh_web.open(_user.id))
@@ -102,7 +155,7 @@ def document_messages(session: Session) -> list[Any]:
 
 
 class SessionCreate(BaseModel):
-    cwd: str = Field(min_length=1, description="Absolute local workspace directory")
+    cwd: str = Field(default="", description="Local workspace; empty selects your personal default")
 
 
 class PromptBody(BaseModel):
@@ -158,11 +211,19 @@ async def update_extensions(
 
 async def owned_session(
     session_id: str,
-    user: User = Depends(require_admin()),
+    user: User = Depends(current_user),
     engine: DSHService = Depends(service),
+    server: OctopServer = Depends(get_server),
 ) -> Session:
     try:
-        return await engine.get(user.id, session_id)
+        session = await engine.get(user.id, session_id)
+        assert server.services is not None
+        assert_user_backend_root_dirs(
+            user,
+            {"type": "local_shell", "root_dir": session.cwd},
+            policy_repo=server.services.user_policy_repo,
+        )
+        return session
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=404) from exc
 
@@ -206,7 +267,7 @@ async def export_document(
     "/sessions", response_model=list[SessionSummary], summary="List your DSH expert sessions"
 )
 async def list_sessions(
-    user: User = Depends(require_admin()), engine: DSHService = Depends(service)
+    user: User = Depends(current_user), engine: DSHService = Depends(service)
 ) -> Any:
     return await engine.list(user.id)
 
@@ -214,9 +275,17 @@ async def list_sessions(
 @router.post("/sessions", response_model=SessionView, summary="Create an independent DSH session")
 async def create_session(
     body: SessionCreate,
-    user: User = Depends(require_admin()),
+    user: User = Depends(current_user),
     engine: DSHService = Depends(service),
+    server: OctopServer = Depends(get_server),
 ) -> Any:
+    assert server.services is not None
+    if body.cwd:
+        assert_user_backend_root_dirs(
+            user,
+            {"type": "local_shell", "root_dir": body.cwd},
+            policy_repo=server.services.user_policy_repo,
+        )
     try:
         return (await engine.create(user.id, body.cwd)).snapshot()
     except ValueError as exc:

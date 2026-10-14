@@ -62,12 +62,50 @@ class Session:
 class DSHService:
     """One lazy process per session; transcripts survive process and app restarts."""
 
-    def __init__(self, root: Path, settings: ACPSettingsStore) -> None:
+    def __init__(self, root: Path, settings: ACPSettingsStore, bridge: Any = None) -> None:
         self.home = root
         self.root = root / "engine-data" / "dsh"
         self.settings = settings
+        self.bridge = bridge
         self.sessions: dict[tuple[int, str], Session] = {}
         self._extensions_lock = asyncio.Lock()
+
+    async def preferences(
+        self, user_id: int, update: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        key = f"dsh_expert:{user_id}"
+        repo = self.settings._settings
+        if update is not None:
+            for session in list(self.sessions.values()):
+                if session.user_id == user_id:
+                    if session.task is not None and not session.task.done():
+                        raise ValueError("DSH session is busy")
+                    await self._close(session)
+            await asyncio.to_thread(repo.set, key, json.dumps(update))
+        raw = await asyncio.to_thread(repo.get, key)
+        return {"cwd": "", "connectors": [], "model": "", **(dict(json.loads(raw)) if raw else {})}
+
+    async def expert(self, user_id: int) -> dict[str, Any]:
+        import shutil
+
+        runners = await asyncio.to_thread(self.settings.load_runners, user_id)
+        command = str(runners["dsh"].get("command", ""))
+        available = bool(command) and (
+            Path(command).is_file()
+            if Path(command).is_absolute()
+            else shutil.which(command) is not None
+        )
+        preferences = await self.preferences(user_id)
+        return {
+            "id": "dsh-expert",
+            "engine": "dsh",
+            "available": available,
+            "cwd": preferences["cwd"],
+            "connectors": preferences["connectors"],
+            "model": preferences["model"],
+            "models": await self.bridge.models() if self.bridge else [],
+            "choices": await self.bridge.choices(user_id) if self.bridge else [],
+        }
 
     async def extensions(self, user_id: int, update: MCPExtensions | None = None) -> MCPExtensions:
         path = self.root / str(user_id) / "extensions.json"
@@ -159,6 +197,10 @@ class DSHService:
         return result
 
     async def create(self, user_id: int, cwd: str) -> Session:
+        if not cwd:
+            preferences = await self.preferences(user_id)
+            cwd = str(preferences.get("cwd") or self.root / str(user_id) / "workspace")
+            await asyncio.to_thread(Path(cwd).mkdir, parents=True, exist_ok=True)
         directory = Path(cwd).expanduser()
         if not directory.is_absolute():
             raise ValueError("Workspace must be an absolute local directory")
@@ -221,6 +263,12 @@ class DSHService:
         )
         # DSH mutable state is outside the installation and isolated by user.
         env = {**os.environ, **config.env, "DSH_HOME": str(data_dir)}
+        extra_args: list[str] = []
+        if self.bridge:
+            launch_env, extra_args = await self.bridge.launch(
+                session.user_id, data_dir, await self.preferences(session.user_id)
+            )
+            env.update(launch_env)
         client = StreamingClient(runner_name="dsh", runner_config=config, cwd=session.cwd)
         stack = AsyncExitStack()
         try:
@@ -229,6 +277,7 @@ class DSHService:
                     client,  # type: ignore[arg-type]
                     config.command,
                     *config.args,
+                    *extra_args,
                     cwd=session.cwd,
                     env=env,
                     transport_kwargs={"limit": config.stdio_buffer_limit_bytes},
@@ -255,7 +304,15 @@ class DSHService:
                     HttpMcpServer.model_validate(item)
                     if item.get("type") == "http"
                     else McpServerStdio.model_validate(item)
-                    for item in session.mcp_extensions
+                    for item in [
+                        *session.mcp_extensions,
+                        *(
+                            [self.bridge.issue(session.id, session.user_id)]
+                            if self.bridge
+                            and (await self.preferences(session.user_id))["connectors"]
+                            else []
+                        ),
+                    ]
                 ]
                 if session.acp_id:
                     # Fail explicitly if resume fails; never silently discard context.
@@ -279,6 +336,8 @@ class DSHService:
         from octop.infra.licensing.service import require_product_license
 
         await require_product_license(self.home)
+        if self.bridge:
+            self.bridge.issue(session.id, session.user_id)
         async with session.lock:
             if session.task is not None and not session.task.done():
                 raise ValueError("Session is busy")

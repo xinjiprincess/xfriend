@@ -128,7 +128,13 @@ func run() (runErr error) {
 	if err != nil {
 		return err
 	}
-	release, err := updates.Verify(manifest, updates.StablePolicy(minimum, time.Now()))
+	flavor, err := updates.InstalledFlavor(*installDir)
+	if err != nil {
+		return err
+	}
+	policy := updates.StablePolicy(minimum, time.Now())
+	policy.Flavor = flavor
+	release, err := updates.Verify(manifest, policy)
 	if err != nil {
 		return err
 	}

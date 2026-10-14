@@ -19,7 +19,7 @@ export default function EngineEntrypoints({
       icon: <MessageSquare size={20} />,
       admin: false,
     },
-    { key: "dsh", path: "/engines/dsh", icon: <Cpu size={20} />, admin: true },
+    { key: "dsh", path: "/experts/dsh", icon: <Cpu size={20} />, admin: false },
     {
       key: "dual",
       path: "/engines/dual",

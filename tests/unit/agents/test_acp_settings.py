@@ -45,28 +45,35 @@ def test_load_defaults_include_codebuddy(
     assert "qwen_code" not in runners
 
 
+@pytest.mark.parametrize("platform", ["win32", "darwin"])
 def test_dsh_uses_bundled_runtime_and_isolates_state(
     acp_store: tuple[ACPSettingsStore, AgentRepo, int],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    platform: str,
 ) -> None:
     store, _, user_id = acp_store
     portable = tmp_path / "portable"
     runtime = portable / "runtime"
+    if platform == "darwin":
+        runtime /= "bin"
     runtime.mkdir(parents=True)
     plugin = portable / "engines" / "dsh"
     (plugin / "node").mkdir(parents=True)
     (plugin / "node" / "runtime-bootstrap.mjs").write_text("// runtime", encoding="utf-8")
     import sys
 
-    binary = plugin / ("node.exe" if sys.platform == "win32" else "node")
+    binary = plugin / ("node.exe" if platform == "win32" else "node-runtime")
     binary.touch()
-    monkeypatch.setattr(sys, "executable", str(runtime / "python.exe"))
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(sys, "executable", str(runtime / "python"))
     runner = store.load_runners(user_id)["dsh"]
     assert runner["command"] == str(binary)
     assert runner["args"] == [str(plugin / "node" / "runtime-bootstrap.mjs"), "--profile", "acp"]
     assert str(user_id) in Path(runner["env"]["DSH_HOME"]).parts
-    assert not runner["enabled"]
+    assert runner["enabled"]
+    store.save_runners(user_id, {"dsh": {"enabled": False}})
+    assert not store.load_runners(user_id)["dsh"]["enabled"]
 
 
 def test_save_and_load_round_trip(acp_store: tuple[ACPSettingsStore, AgentRepo, int]) -> None:

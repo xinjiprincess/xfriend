@@ -63,7 +63,7 @@ func installedUpdateContext() (string, string, string, error) {
 func checkUpdate(ctx context.Context) (UpdateStatus, []byte, updates.Release, error) {
 	var status UpdateStatus
 	var empty updates.Release
-	_, _, current, err := installedUpdateContext()
+	directory, _, current, err := installedUpdateContext()
 	if err != nil {
 		return status, nil, empty, err
 	}
@@ -71,7 +71,13 @@ func checkUpdate(ctx context.Context) (UpdateStatus, []byte, updates.Release, er
 	if err != nil {
 		return status, nil, empty, err
 	}
-	release, signed, err := updates.FetchSigned(ctx, &http.Client{}, updates.StableManifestURL, updates.StablePolicy(minimum, time.Now()))
+	flavor, err := updates.InstalledFlavor(directory)
+	if err != nil {
+		return status, nil, empty, err
+	}
+	policy := updates.StablePolicy(minimum, time.Now())
+	policy.Flavor = flavor
+	release, signed, err := updates.FetchSigned(ctx, &http.Client{}, updates.ManifestForFlavor(flavor), policy)
 	if err != nil {
 		return status, nil, empty, err
 	}

@@ -384,6 +384,7 @@ class OctopServer:
     def dsh_service(self) -> DSHService:
         from octop.infra.agents.settings.acp import ACPSettingsStore
         from octop.infra.engines.dsh import DSHService
+        from octop.infra.engines.dsh_connectors import DSHConnectorBridge
 
         if self.services is None:
             raise RuntimeError("DSH requires a started server")
@@ -395,6 +396,7 @@ class OctopServer:
                     agents_repo=self.services.agent_repo,
                     home=self.paths.root,
                 ),
+                DSHConnectorBridge(self.services),
             )
         return self._dsh_service
 
@@ -403,7 +405,7 @@ class OctopServer:
         from octop.infra.engines.dsh_web import DSHWebWorkspace
 
         if self._dsh_web is None:
-            self._dsh_web = DSHWebWorkspace(self._home, self.dsh_service.settings)
+            self._dsh_web = DSHWebWorkspace(self._home, self.dsh_service.settings, self.dsh_service)
         return self._dsh_web
 
     @property

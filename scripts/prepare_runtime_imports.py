@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 ORIGINAL_SHA256 = "79fb112b0507d5be105197582ff429bb42e45855b16cdf912315eeb06c0914ab"
+PATCHED_SHA256 = "217b00fb45937ff5eeddfe58885ef93462fc46032b5baa7f3e1de729108b5b79"
 RELATIVE = "deepagents/middleware/filesystem.py"
 
 
@@ -44,6 +45,14 @@ def prepare(packages: Path) -> dict[str, str]:
     path = packages / RELATIVE
     original = path.read_bytes()
     before = hashlib.sha256(original).hexdigest()
+    if before == PATCHED_SHA256:
+        record = json.loads((packages / "xfriend-runtime-patches.json").read_text("utf-8"))
+        if (
+            record.get("original_sha256") != ORIGINAL_SHA256
+            or record.get("patched_sha256") != before
+        ):
+            raise ValueError("Runtime patch audit does not match the pinned dependency")
+        return dict(record)
     if before != ORIGINAL_SHA256:
         raise ValueError("deepagents source changed; review runtime import patch before packaging")
     patched = transform(original.decode("utf-8"))

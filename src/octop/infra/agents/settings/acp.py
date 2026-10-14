@@ -69,12 +69,23 @@ class ACPSettingsStore:
             self._home / "engine-data" / "dsh" / str(user_id) / "resources"
         )
         runners["dsh"]["env"]["DSH_TELEMETRY_DISABLED"] = "1"
-        bundled = Path(sys.executable).resolve().parent.parent / "engines" / "dsh"
+        runtime_root = Path(sys.executable).resolve().parent.parent
+        if sys.platform == "darwin":
+            runtime_root = runtime_root.parent
+        bundled = runtime_root / "engines" / "dsh"
         entry = bundled / "node" / "runtime-bootstrap.mjs"
-        binary = bundled / ("node.exe" if sys.platform == "win32" else "node")
+        binary_name = "node-runtime" if sys.platform == "darwin" else "node"
+        binary = bundled / ("node.exe" if sys.platform == "win32" else binary_name)
+        features = bundled.parent.parent / "desktop-features.json"
+        if features.is_file() and not json.loads(features.read_text("utf-8")).get("dsh"):
+            runners["dsh"]["enabled"] = False
+            runners["dsh"]["command"] = ""
+            return runners
         if runners["dsh"]["command"] == "dsh" and binary.is_file() and entry.is_file():
             runners["dsh"]["command"] = str(binary)
             runners["dsh"]["args"] = [str(entry), *runners["dsh"]["args"]]
+            if "enabled" not in raw.get("dsh", {}):
+                runners["dsh"]["enabled"] = True
         return runners
 
     def load_runners(self, user_id: int) -> dict[str, Any]:

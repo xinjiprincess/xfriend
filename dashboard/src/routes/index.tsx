@@ -15,6 +15,7 @@ const PersonalizationPage = lazy(
 const ACPPage = lazy(() => import("../pages/Agent/ACP"));
 const AssistantSettings = lazy(() => import("../pages/AssistantSettings"));
 const ExecutionPage = lazy(() => import("../pages/Execution"));
+const DSHExpertPage = lazy(() => import("../pages/DSHExpert"));
 const EnginesPage = lazy(() => import("../pages/Engines"));
 const PlatformCollaboration = lazy(
   () => import("../pages/PlatformCollaboration"),
@@ -200,7 +201,8 @@ export const routeConfigs: RouteConfig[] = [
   { path: "/assistant-settings", element: <AssistantSettings /> },
   { path: "/execution", element: <ExecutionPage /> },
   { path: "/engines", element: <EnginesPage /> },
-  { path: "/engines/dsh", element: <EnginesPage /> },
+  { path: "/engines/dsh", element: <Navigate to="/experts/dsh" replace /> },
+  { path: "/experts/dsh", element: <DSHExpertPage /> },
   { path: "/engines/dual", element: <EnginesPage /> },
   {
     path: "/channels",

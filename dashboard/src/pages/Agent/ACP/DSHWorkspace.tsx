@@ -18,7 +18,7 @@ import {
   type EngineSessionSummary,
 } from "../../../api/modules/engines";
 
-export default function DSHWorkspace() {
+export default function DSHWorkspace({ expert = false }: { expert?: boolean }) {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const [sessions, setSessions] = useState<EngineSessionSummary[]>([]);
@@ -91,21 +91,23 @@ export default function DSHWorkspace() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Alert
-        type="info"
-        showIcon
-        message={t("engines.title")}
-        description={t("engines.hint")}
-      />
+      {!expert && (
+        <Alert
+          type="info"
+          showIcon
+          message={t("engines.title")}
+          description={t("engines.hint")}
+        />
+      )}
       <Space wrap>
         <Input
           value={cwd}
           onChange={(e) => setCwd(e.target.value)}
-          placeholder={t("engines.cwd")}
+          placeholder={t(expert ? "dshExpert.defaultWorkspace" : "engines.cwd")}
           style={{ width: 360 }}
         />
         <Button
-          disabled={!cwd.trim() || busy}
+          disabled={busy}
           onClick={() => void run(() => enginesApi.create(cwd))}
         >
           {t("engines.create")}

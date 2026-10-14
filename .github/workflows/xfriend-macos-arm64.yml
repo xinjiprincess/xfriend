@@ -3,7 +3,7 @@ name: Xfriend macOS Apple Silicon
 on:
   workflow_dispatch:
   push:
-    branches: [codex/macos-arm64-1.4.9]
+    branches: [codex/macos-arm64-1.4.10]
 
 permissions:
   contents: read
@@ -74,7 +74,7 @@ jobs:
           uv run python scripts/desktop_components.py stage --platform darwin-arm64 --dsh .artifacts/macos-dsh --browsers .artifacts/macos-browsers --output .artifacts/macos-components
           .artifacts/macos-dsh/node-runtime .artifacts/macos-dsh/node/runtime-bootstrap.mjs --help
           rm -rf .artifacts/dsh-source .artifacts/dsh-web-closure .artifacts/macos-dsh-base .artifacts/macos-dsh .artifacts/macos-browsers
-      - name: Build complete DMG
+      - name: Build standard and DSH slim DMGs
         env:
           XFRIEND_COMPONENTS_DIR: ${{ github.workspace }}/.artifacts/macos-components
           XFRIEND_RELEASE_LICENSE_PROFILE: ${{ github.workspace }}/.artifacts/macos-public-profile.json

@@ -22,6 +22,12 @@ export interface EngineSession extends EngineSessionSummary {
 const base = "/engines/dsh/sessions";
 const path = (id: string) => `${base}/${encodeURIComponent(id)}`;
 export const enginesApi = {
+  expert: () => request<DSHExpertView>("/engines/dsh/expert"),
+  setExpert: (cwd: string, connectors: string[], model: string) =>
+    request<DSHExpertView>("/engines/dsh/expert", {
+      method: "PUT",
+      body: JSON.stringify({ cwd, connectors, model }),
+    }),
   web: () => request<{ url: string }>("/engines/dsh/web"),
   extensions: () =>
     request<{ extensions: MCPExtension[] }>("/engines/dsh/extensions"),
@@ -59,4 +65,15 @@ export interface MCPExtension {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+}
+
+export interface DSHExpertView {
+  id: string;
+  engine: string;
+  available: boolean;
+  cwd: string;
+  connectors: string[];
+  model: string;
+  models: { id: string; name: string }[];
+  choices: { id: string; name: string; status: string }[];
 }

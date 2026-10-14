@@ -55,6 +55,17 @@ async def internal_mcp_post(
     token: str = Query(...),
     server: Any = Depends(get_server),
 ) -> Response:
+    if kind == "dsh":
+        engine = server.dsh_service
+        user_id = engine.bridge.validate(instance_id, token)
+        preferences = await engine.preferences(user_id)
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("params", {}), dict):
+            raise OctopError(ErrorCode.SLASH_BAD_ARGS, "SLASH_BAD_ARGS")
+        result = await engine.bridge.handle(instance_id, token, body, preferences["connectors"])
+        if not result:
+            return Response(status_code=202)
+        return JSONResponse(result)
     inst = server.services.repos.connector_repo.get(instance_id)
     if inst is None or inst.kind != kind or inst.status != "active":
         raise OctopError(ErrorCode.CONNECTOR_NOT_FOUND, "instance not found")
@@ -105,6 +116,9 @@ async def internal_mcp_get(
     server: Any = Depends(get_server),
 ) -> Response:
     """Streamable HTTP clients open a long-lived GET SSE channel after initialize."""
+    if kind == "dsh":
+        server.dsh_service.bridge.validate(instance_id, token)
+        return Response(status_code=405)
     inst = server.services.repos.connector_repo.get(instance_id)
     if inst is None or inst.kind != kind:
         raise OctopError(ErrorCode.CONNECTOR_NOT_FOUND, "instance not found")
@@ -141,6 +155,9 @@ async def internal_mcp_delete(
     server: Any = Depends(get_server),
 ) -> Response:
     """Streamable HTTP clients may DELETE to end a session."""
+    if kind == "dsh":
+        server.dsh_service.bridge.validate(instance_id, token)
+        return Response(status_code=204)
     inst = server.services.repos.connector_repo.get(instance_id)
     if inst is None or inst.kind != kind:
         raise OctopError(ErrorCode.CONNECTOR_NOT_FOUND, "instance not found")

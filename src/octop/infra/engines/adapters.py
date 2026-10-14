@@ -148,7 +148,16 @@ class NativeEngine:
 class DSHEngine:
     id = "dsh"
     capabilities = frozenset(
-        {"sessions", "resume", "cancel", "permission", "tools", "mcp", "versioned-runtime"}
+        {
+            "sessions",
+            "resume",
+            "cancel",
+            "permission",
+            "tools",
+            "mcp",
+            "connectors",
+            "versioned-runtime",
+        }
     )
 
     def __init__(self, service: DSHService) -> None:

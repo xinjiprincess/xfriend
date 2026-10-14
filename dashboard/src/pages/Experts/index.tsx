@@ -36,6 +36,7 @@ import {
 import PageShell from "../../layouts/PageShell";
 import TabLabel from "../../components/TabLabel";
 import StreamSetupGuide from "../../components/StreamSetupGuide/StreamSetupGuide";
+import DSHExpertCard from "../../components/DSHExpertCard";
 import EngineEntrypoints from "../../components/EngineEntrypoints";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { request } from "../../api/request";
@@ -868,7 +869,12 @@ export default function ExpertsPage() {
             label: (
               <TabLabel icon={GraduationCap}>{t("experts.myExperts")}</TabLabel>
             ),
-            children: myExpertsContent,
+            children: (
+              <>
+                <DSHExpertCard />
+                {myExpertsContent}
+              </>
+            ),
           },
           {
             key: "teams",

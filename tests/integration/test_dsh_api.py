@@ -4,6 +4,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+from tests.support.auth import create_user
+
 
 async def test_dsh_session_prompt_export_and_auth(env_acp_agent, tmp_path: Path) -> None:
     client, _server, auth, agent_id = env_acp_agent
@@ -48,3 +50,39 @@ async def test_dsh_session_prompt_export_and_auth(env_acp_agent, tmp_path: Path)
     assert (
         await client.get("/api/engines/dsh/sessions/not-a-uuid", headers=auth)
     ).status_code == 404
+
+
+async def test_regular_user_builtin_expert_and_session_isolation(
+    env_acp_agent, tmp_path: Path
+) -> None:
+    client, server, admin, _agent_id = env_acp_agent
+    user = await create_user(client, admin, username="dsh-user")
+    response = await client.get("/api/engines/dsh/expert", headers=user)
+    assert response.status_code == 200
+    assert response.json()["id"] == "dsh-expert"
+    saved = await client.put(
+        "/api/engines/dsh/expert", headers=user, json={"cwd": str(tmp_path), "connectors": []}
+    )
+    assert saved.status_code == 200
+    created = await client.post("/api/engines/dsh/sessions", headers=user, json={"cwd": ""})
+    assert created.status_code == 200
+    identity = created.json()["id"]
+    assert created.json()["cwd"] == str(tmp_path)
+    assert (
+        await client.get(f"/api/engines/dsh/sessions/{identity}", headers=admin)
+    ).status_code == 404
+    assert (await client.get("/api/engines/dsh/packages", headers=user)).status_code == 403
+    assert (
+        await client.put("/api/engines/dsh/extensions", headers=user, json={"extensions": []})
+    ).status_code == 403
+    assert (
+        await client.put(
+            "/api/engines/dsh/expert", headers=user, json={"connectors": ["other-user"]}
+        )
+    ).status_code == 403
+    user_id = next(s.user_id for s in server.dsh_service.sessions.values() if s.id == identity)
+    grant = server.dsh_service.bridge.issue(identity, user_id)
+    token = grant["url"].split("token=")[1]
+    assert server.dsh_service.bridge.validate(identity, token) == user_id
+    await client.post("/api/auth/logout", headers=user)
+    assert identity not in server.dsh_service.bridge.grants

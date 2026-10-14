@@ -6937,5 +6937,16 @@
       "skills-approval": "技能待信任，文件位于 pending-import",
       "dsh-workspace": "DSH 配置需在统一引擎设置中确认"
     }
+  },
+  "dshExpert": {
+    "name": "DeepSeek Harness 专家",
+    "description": "使用 DSH 完成项目任务，连接已授权的应用与服务。",
+    "missing": "当前为标准版，未安装 DSH。安装 DSH 精简版即可启用；已有对话和配置会保留。",
+    "open": "打开专家",
+    "defaultWorkspace": "留空使用个人默认工作区",
+    "connectors": "选择此专家可使用的连接器",
+    "manageConnectors": "管理连接器",
+    "models": "模型配置",
+    "save": "保存设置"
   }
 }

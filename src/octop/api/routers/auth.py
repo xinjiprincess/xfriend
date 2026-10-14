@@ -243,6 +243,16 @@ async def login(
 async def logout(user: Any = Depends(current_user), server: Any = Depends(get_server)) -> Response:
     """Record an audit event for the current session. JWTs are stateless and not revoked server-side."""
     server.services.audit_repo.write(actor=user.username, action="auth.logout")
+    engine = getattr(server, "_dsh_service", None)
+    if engine is not None:
+        if engine.bridge is not None:
+            engine.bridge.revoke_user(user.id)
+        for session in list(engine.sessions.values()):
+            if session.user_id == user.id:
+                await engine.close(session)
+    web = getattr(server, "_dsh_web", None)
+    if web is not None:
+        await web.close_user(user.id)
     return Response(status_code=204)
 
 

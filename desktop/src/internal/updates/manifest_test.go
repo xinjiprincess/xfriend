@@ -26,6 +26,19 @@ func TestReleaseTrustBoundary(t *testing.T) {
 	if got, err := Verify(sign(base), policy); err != nil || got.Version != base.Version {
 		t.Fatalf("valid release: %v", err)
 	}
+	policy.Flavor = "standard"
+	if _, err := Verify(sign(base), policy); err == nil {
+		t.Fatal("accepted legacy edition for edition-bound client")
+	}
+	base.Flavor = "dsh-slim"
+	if _, err := Verify(sign(base), policy); err == nil {
+		t.Fatal("accepted another edition")
+	}
+	base.Flavor = "standard"
+	if _, err := Verify(sign(base), policy); err != nil {
+		t.Fatal(err)
+	}
+	policy.Flavor = ""
 	for name, mutate := range map[string]func(*Release){
 		"expired":             func(r *Release) { r.Expires = now },
 		"rollback":            func(r *Release) { r.Sequence = 9 },
