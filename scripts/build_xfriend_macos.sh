@@ -23,32 +23,28 @@ wails3 task darwin:build ARCH=arm64 VERSION="$version" PRODUCTION=true PORTABLE_
 output="$root/dist/$version-macos-arm64"
 mkdir -p "$output"
 for flavor in standard dsh-slim; do
-  runtime="$GREEN_ROOT/variants/$flavor"
-  uv run --project "$root" python "$root/scripts/slim_desktop_runtime.py" --source "$GREEN_ROOT/release/Octop-darwin-arm64" --output "$runtime" --flavor "$flavor" > "$output/$flavor-size.json"
   app="$root/.artifacts/macos-app-$version/$flavor/Xfriend.app"
   test ! -e "$app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/runtimes"
+  runtime="$app/Contents/Resources/runtimes/$version"
+  uv run --project "$root" python "$root/scripts/slim_desktop_runtime.py" --source "$GREEN_ROOT/release/Octop-darwin-arm64" --output "$runtime" --flavor "$flavor" > "$output/$flavor-size.json"
   cp bin/Xfriend "$app/Contents/MacOS/Xfriend"
   cp build/darwin/icons.icns "$app/Contents/Resources/icons.icns"
   cp build/darwin/Info.plist "$app/Contents/Info.plist"
   python3 build/stamp_version.py plist "$app/Contents/Info.plist" "$version"
   /usr/libexec/PlistBuddy -c 'Set :LSMinimumSystemVersion 14.0' "$app/Contents/Info.plist"
   # Predeploy code: no first-launch runtime extraction.
-  ditto "$runtime" "$app/Contents/Resources/runtimes/$version"
   printf '{"version":"%s"}\n' "$version" > "$app/Contents/Resources/runtime-release.json"
   codesign --force --sign - "$app"
   codesign --verify --deep --strict "$app"
   uv run --project "$root" python "$root/scripts/smoke_macos_desktop.py" --app "$app"
   "$app/Contents/Resources/runtimes/$version/runtime/bin/python3" -S "$root/scripts/smoke_macos_dsh.py" --runtime "$app/Contents/Resources/runtimes/$version"
-  staging="$(mktemp -d "${TMPDIR:-/tmp}/xfriend-dmg.XXXXXX")"
-  trap 'rm -rf "$staging"' EXIT
-  ditto "$app" "$staging/Xfriend.app"
+  staging="$(dirname "$app")"
   ln -s /Applications "$staging/Applications"
   dmg="$output/Singu-Xfriend-$version-$flavor-macos-arm64.dmg"
   hdiutil create -volname 'Singu Xfriend' -srcfolder "$staging" -ov -format UDZO "$dmg"
   hdiutil verify "$dmg"
   rm -rf "$staging"
-  trap - EXIT
 done
 cd "$output"
 shasum -a 256 ./*.dmg > SHA256SUMS.txt
